@@ -1,6 +1,4 @@
-*** ### THIS CONTENT IS AI GENERATED ### ***
-<img width="1434" height="857" alt="clipboard_20260613_173530_5678da84" src="https://github.com/user-attachments/assets/72baa198-e24a-4ca9-a072-e366cf5d3f49" />
-
+<div align="center">
 
 # 🚀 Smart VAC Media Compressor
 
