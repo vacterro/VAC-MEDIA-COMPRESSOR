@@ -1,5 +1,7 @@
 <div align="center">
 
+**### THIS CONTENT IS AI GENERATED ###**
+<img width="1434" height="857" alt="2026-06-13_203529" src="https://github.com/user-attachments/assets/a35a2de8-de5c-4f92-b4e3-819684381389" />
 # 🚀 Smart VAC Media Compressor
 
 **A high-performance, intelligent batch media compression suite built in Python and PyQt6.**
