@@ -1,10 +1,6 @@
 *** ### THIS CONTENT IS AI GENERATED ### ***
+<img width="1434" height="857" alt="clipboard_20260613_173530_5678da84" src="https://github.com/user-attachments/assets/72baa198-e24a-4ca9-a072-e366cf5d3f49" />
 
-
-<img width="1434" height="857" alt="clipboard_20260613_173535_3f8df30a" src="https://github.com/user-attachments/assets/25646617-aa9f-49ae-9e18-562cd2b41e0a" />
-<img width="1434" height="857" alt="2026-06-13_203534" src="https://github.com/user-attachments/assets/c9b07319-badb-42c1-9928-246dec2127eb" />
-
-<div align="center">
 
 # 🚀 Smart VAC Media Compressor
 
