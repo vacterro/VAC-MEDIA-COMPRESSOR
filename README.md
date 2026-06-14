@@ -41,16 +41,21 @@ The application relies on several industry-standard command-line utilities. Ensu
 4. **[texconv](https://github.com/microsoft/DirectXTex/releases)** *(Optional)* — Required for DDS/TGA texture conversions.
 5. **oxipng & jpegoptim** *(Optional)* — Required for true lossless optimization pathways.
 
+> [!TIP]
+> **Portable Installation**: Instead of adding these `.exe` files to your system `PATH`, you can simply drop them into the `bin/` folder inside the project directory. The compressor will automatically detect and use them from there!
+
 ### Quick Start
 ```bash
 # 1. Clone the repository
 git clone https://github.com/vacterro/VAC-MEDIA-COMPRESSOR.git
-cd Smart-VAC-Media-Compressor
+cd VAC-MEDIA-COMPRESSOR
 
 # 2. Install Python requirements
 pip install -r requirements.txt
 
-# 3. Launch the application
+# 3. (Optional) Drop your downloaded .exe tools into the /bin folder
+
+# 4. Launch the application
 python main.py
 ```
 
