@@ -44,7 +44,7 @@ The application relies on several industry-standard command-line utilities. Ensu
 ### Quick Start
 ```bash
 # 1. Clone the repository
-git clone https://github.com/YourUsername/Smart-VAC-Media-Compressor.git
+git clone https://github.com/vacterro/VAC-MEDIA-COMPRESSOR.git
 cd Smart-VAC-Media-Compressor
 
 # 2. Install Python requirements
