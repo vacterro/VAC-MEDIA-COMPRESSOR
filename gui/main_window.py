@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QSettings, pyqtSignal
 from PyQt6.QtGui import QIcon, QAction
+import logging
+from logging.handlers import RotatingFileHandler
 from core.batch_manager import BatchManager
 from core.quick_converter import QuickConverter
 from core.quick_worker import QuickWorker
@@ -200,8 +202,9 @@ class DropZone(QFrame):
 from PyQt6.QtGui import QPainter, QColor
 
 class DefragProgressBar(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, theme_manager=None):
         super().__init__(parent)
+        self.theme_manager = theme_manager
         self.total = 0
         self.progress = 0
         self.setMinimumHeight(24)
@@ -220,29 +223,50 @@ class DefragProgressBar(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         
+        # Get theme colors or fallback to default
+        if self.theme_manager:
+            theme = self.theme_manager.get_palette()
+            c_bg = theme.get('surface', '#C0C0C0')
+            c_border_subtle = theme.get('borderSubtle', '#808080')
+            c_border_strong = theme.get('borderStrong', '#404040')
+            c_highlight = theme.get('borderHighlight', '#FFFFFF')
+            c_surface_alt = theme.get('surfaceAlt', '#E6E6E6')
+            c_surface_raised = theme.get('surfaceRaised', '#FFFFFF')
+            c_done = theme.get('accentTurquoise', '#008080')
+            c_rem = theme.get('danger', '#800000')
+        else:
+            c_bg = '#C0C0C0'
+            c_border_subtle = '#808080'
+            c_border_strong = '#404040'
+            c_highlight = '#FFFFFF'
+            c_surface_alt = '#E6E6E6'
+            c_surface_raised = '#FFFFFF'
+            c_done = '#008080'
+            c_rem = '#800000'
+        
         # Draw vintage inset border and background
-        painter.fillRect(self.rect(), QColor("#C0C0C0"))
+        painter.fillRect(self.rect(), QColor(c_bg))
         
         # Draw 3D inset border
-        painter.setPen(QColor("#808080"))
+        painter.setPen(QColor(c_border_subtle))
         painter.drawLine(0, 0, self.width()-1, 0)
         painter.drawLine(0, 0, 0, self.height()-1)
         
-        painter.setPen(QColor("#404040"))
+        painter.setPen(QColor(c_border_strong))
         painter.drawLine(1, 1, self.width()-2, 1)
         painter.drawLine(1, 1, 1, self.height()-2)
         
-        painter.setPen(QColor("#FFFFFF"))
+        painter.setPen(QColor(c_highlight))
         painter.drawLine(0, self.height()-1, self.width()-1, self.height()-1)
         painter.drawLine(self.width()-1, 0, self.width()-1, self.height()-1)
         
-        painter.setPen(QColor("#E6E6E6"))
+        painter.setPen(QColor(c_surface_alt))
         painter.drawLine(1, self.height()-2, self.width()-2, self.height()-2)
         painter.drawLine(self.width()-2, 1, self.width()-2, self.height()-2)
         
         # Inner drawing area
         inner_rect = self.rect().adjusted(2, 2, -2, -2)
-        painter.fillRect(inner_rect, QColor("#FFFFFF"))
+        painter.fillRect(inner_rect, QColor(c_surface_raised))
         
         if self.total <= 0:
             return
@@ -266,8 +290,8 @@ class DefragProgressBar(QWidget):
         start_x = inner_rect.left() + 2
         start_y = inner_rect.top() + 2
         
-        color_done = QColor("#008080")
-        color_remaining = QColor("#FF0000")
+        color_done = QColor(c_done)
+        color_remaining = QColor(c_rem)
         
         for i in range(total_cells_drawn):
             cx = start_x + i * (cell_w + margin)
@@ -297,6 +321,8 @@ class MainWindow(QMainWindow):
         
         self.setup_system_tray()
 
+        self.setup_logging()
+
         self.settings = QSettings("SmartVac", "MediaCompressor")
 
         self._init_ui()
@@ -306,6 +332,15 @@ class MainWindow(QMainWindow):
         self.autosave_timer = QTimer(self)
         self.autosave_timer.timeout.connect(self.save_settings)
         self.autosave_timer.start(5000)
+
+    def setup_logging(self):
+        self._logger = logging.getLogger("SmartVacLog")
+        self._logger.setLevel(logging.INFO)
+        if not self._logger.handlers:
+            handler = RotatingFileHandler("session_log.txt", maxBytes=1024*1024, backupCount=1, encoding='utf-8')
+            formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+            handler.setFormatter(formatter)
+            self._logger.addHandler(handler)
 
     def setup_system_tray(self):
         self.tray_icon = QSystemTrayIcon(self)
@@ -452,7 +487,7 @@ class MainWindow(QMainWindow):
         self.cancel_btn.setMinimumHeight(44)
         progress_layout.addWidget(self.cancel_btn)
 
-        self.progress_bar = DefragProgressBar()
+        self.progress_bar = DefragProgressBar(theme_manager=self.theme_manager)
         self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setMinimumHeight(44)
@@ -978,14 +1013,11 @@ class MainWindow(QMainWindow):
         self.log(f"[INFO] Appearance settings applied")
 
     def log(self, msg: str):
-        import datetime
         self.log_view.append(msg)
         sb = self.log_view.verticalScrollBar()
         sb.setValue(sb.maximum())
         try:
-            with open("session_log.txt", "a", encoding="utf-8") as f:
-                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                f.write(f"[{timestamp}] {msg}\n")
+            self._logger.info(msg)
         except Exception:
             pass
 

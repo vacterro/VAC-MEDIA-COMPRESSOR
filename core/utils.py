@@ -26,6 +26,9 @@ def find_tool(name: str) -> str:
 
 def run_subprocess(cmd: list, timeout: int = None) -> tuple[bool, str]:
     """Run a subprocess with cancellation support."""
+    if not cmd or not cmd[0]:
+        return False, f"Executable not found or empty command: {cmd}"
+        
     try:
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         proc = subprocess.Popen(

@@ -1,7 +1,7 @@
 {
     "active_theme": "Vintage 95",
-    "font_family": "MS Sans Serif",
-    "font_size": 14,
+    "is_custom": false,
+    "font_size": 12,
     "custom_palette": {
         "bg_base": "#121212",
         "bg_surface": "#1E1E1E",
@@ -20,5 +20,6 @@
         "secondary_hover": "#018786",
         "danger": "#CF6679",
         "danger_hover": "#B00020"
-    }
+    },
+    "font_family": "Verdana_m1"
 }
