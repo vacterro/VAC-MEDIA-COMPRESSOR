@@ -4,7 +4,7 @@ import shutil
 from .utils import find_tool, run_subprocess
 
 class ImageProcessor:
-    SUPPORTED_EXTS = frozenset({'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.avif', '.tga', '.dds', '.jfif', '.heic', '.hdr', '.exr', '.tiff', '.tif', '.ico', '.convert to webp'})
+    SUPPORTED_EXTS = frozenset({'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.avif', '.tga', '.dds', '.jfif', '.heic', '.hdr', '.exr', '.tiff', '.tif', '.ico'})
 
     def __init__(self):
         self.magick_bin = find_tool("magick")
@@ -25,9 +25,19 @@ class ImageProcessor:
         p = Path(file_path)
         # Determine output path
         out_ext = p.suffix
-        if out_format != "Keep Original Extension" and out_format.strip():
-            # out_format could be 'JPG', 'WEBP', 'PNG', 'AVIF'
-            out_ext = f".{out_format.lower()}"
+        if out_format not in ["Keep Original Extension", "Keep Original"] and out_format.strip():
+            fmt_upper = out_format.upper()
+            if "WEBP" in fmt_upper:
+                out_ext = ".webp"
+            elif "JPG" in fmt_upper or "JPEG" in fmt_upper:
+                out_ext = ".jpg"
+            elif "PNG" in fmt_upper:
+                out_ext = ".png"
+            elif "AVIF" in fmt_upper:
+                out_ext = ".avif"
+            else:
+                # Fallback if just the extension was passed
+                out_ext = out_format if out_format.startswith('.') else f".{out_format.lower()}"
 
         base_dir = Path(target_dir) if target_dir else p.parent
         if target_dir and not base_dir.exists():

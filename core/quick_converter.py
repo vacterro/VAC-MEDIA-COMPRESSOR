@@ -3,7 +3,7 @@ from pathlib import Path
 from .utils import find_tool, run_subprocess
 
 class QuickConverter:
-    IMAGE_EXTS = frozenset({'.png', '.jpg', '.jpeg', '.tga', '.dds', '.pic', '.webp', '.bmp', '.tif', '.tiff', '.gif', '.convert to webp'})
+    IMAGE_EXTS = frozenset({'.png', '.jpg', '.jpeg', '.tga', '.dds', '.pic', '.webp', '.bmp', '.tif', '.tiff', '.gif'})
     VIDEO_EXTS = frozenset({'.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm', '.flv', '.wmv'})
 
     def __init__(self):

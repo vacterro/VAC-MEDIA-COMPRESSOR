@@ -23,7 +23,7 @@ class AdvancedPreviewDialog(QDialog):
         self.adjustments = file_data.get('adjustments', {})
         
         self.setWindowTitle(f"Advanced Preview Engine - {self.p.name}")
-        self.resize(800, 600)
+        self.resize(600, 450)
         
         self.layout = QVBoxLayout(self)
         

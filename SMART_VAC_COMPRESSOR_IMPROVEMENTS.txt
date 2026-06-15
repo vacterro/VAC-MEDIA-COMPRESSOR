@@ -1,0 +1,8 @@
+- Crashes when user tries tick on Video Processing -> Smart Auto
+- Must every 5 seconds save settings, queue list also.
+- Need clear queue list with tickboxes enabling them in queue.
+- Let user decide how much allocate cores clearly.
+- Need pause button.
+- Fancy progress bar, cell-style like defragmentation, blue done, red remaining.
+
+- FORMAT: v:\___VAC\_BATTLEZONE\BZCC_Asset_Studio_v0_5\DOCS\_VACUI\config\docs\UI.md

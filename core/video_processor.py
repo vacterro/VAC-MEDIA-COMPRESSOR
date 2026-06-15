@@ -22,10 +22,13 @@ class VideoProcessor:
             return False, "ffmpeg not found in PATH", ""
 
         p = Path(file_path)
-        out_ext = out_container if out_container.startswith('.') else f".{out_container}"
+        out_ext = p.suffix
+        if out_container != "Keep Original":
+            out_ext = out_container if out_container.startswith('.') else f".{out_container}"
+            
         if extract_audio:
             out_ext = ".mp3"
-        elif out_ext not in [".mkv", ".mp4", ".webm"]:
+        elif out_ext not in [".mkv", ".mp4", ".webm"] and out_container != "Keep Original":
             out_ext = ".mkv"
 
         base_dir = Path(target_dir) if target_dir else p.parent

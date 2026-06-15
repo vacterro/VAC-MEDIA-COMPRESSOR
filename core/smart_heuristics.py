@@ -9,7 +9,6 @@ class SmartHeuristics:
         '.gif': ('Web', 'WebP'),
         '.webp': ('Lossless', 'Keep Original Extension'),
         '.avif': ('Lossless', 'Keep Original Extension'),
-        '.convert to webp': ('Quality > Size', 'WebP'),
     }
 
     BATCH_VIDEO_SUGGESTIONS = {

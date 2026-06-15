@@ -22,10 +22,17 @@ class BatchManager(QThread):
         self.image_proc = ImageProcessor()
         self.video_proc = VideoProcessor()
         self._is_cancelled = False
+        self._is_paused = False
 
     def cancel(self):
         self._is_cancelled = True
         cancel_all_subprocesses()
+
+    def toggle_pause(self):
+        self._is_paused = not self._is_paused
+
+    def is_paused(self):
+        return self._is_paused
 
     def run(self):
         self.log_message.emit("Scanning for files...")
@@ -48,7 +55,7 @@ class BatchManager(QThread):
         self.log_message.emit(f"Found {total_files} items to process.")
         self.progress_updated.emit(0, total_files)
 
-        workers = os.cpu_count() or 4
+        workers = self.options.get('cpu_cores', os.cpu_count() or 4)
         # Use ThreadPoolExecutor to process files in parallel
         processed_count = 0
 
@@ -193,103 +200,116 @@ class BatchManager(QThread):
         return list(files)
 
     def _process_single_file(self, path: Path) -> tuple[bool, str, str, int, int]:
+        import time
+        while self._is_paused and not self._is_cancelled:
+            time.sleep(0.5)
+
         if self._is_cancelled:
             return False, "Cancelled", "", 0, 0
             
-        orig_size = 0
-        if path.exists():
-            orig_size = path.stat().st_size
+        try:
+            orig_size = 0
+            if path.exists():
+                orig_size = path.stat().st_size
 
-        overwrite = self.options.get('overwrite', False)
-        use_suffix = self.options.get('use_suffix', True)
-        suffix = self.options.get('suffix', '_compressed') if use_suffix else ''
-        use_target = self.options.get('use_target', False)
-        target_dir = self.options.get('target_dir', '') if use_target else None
-        skip_existing = self.options.get('skip_existing', False)
-        
-        is_img = self.image_proc.is_supported(str(path))
-        is_vid = self.video_proc.is_supported(str(path))
-        
-        if is_img:
-            if self.options.get('smart_auto_image', False):
-                _, img_format = SmartHeuristics.get_batch_image_suggestion(path.suffix)
-                preset = "Custom"
-            else:
-                img_format = self.options.get('image_format', "Keep Original Extension")
-                preset = self.options.get('image_preset', "Lossless")
+            overwrite = self.options.get('overwrite', False)
+            use_suffix = self.options.get('use_suffix', True)
+            suffix = self.options.get('suffix', '_compressed') if use_suffix else ''
+            use_target = self.options.get('use_target', False)
+            target_dir = self.options.get('target_dir', '') if use_target else None
+            skip_existing = self.options.get('skip_existing', False)
             
-            img_quality = int(self.options.get('img_quality', 85))
-
-            res_success, res_msg, res_out = self.image_proc.process(
-                str(path),
-                preset,
-                overwrite,
-                suffix,
-                target_dir,
-                img_format,
-                skip_existing,
-                img_quality
-            )
-            new_size = Path(res_out).stat().st_size if res_success and Path(res_out).exists() else 0
-            return res_success, res_msg, res_out, orig_size, new_size
-        elif is_vid:
-            preset = self.options.get('video_preset', "Main AV1")
-            crf_val = self.options.get('video_crf', "")
-            if self.options.get('smart_auto_video', False):
-                preset, crf_val, _, _ = SmartHeuristics.get_batch_video_suggestion(path.suffix)
+            is_img = self.image_proc.is_supported(str(path))
+            is_vid = self.video_proc.is_supported(str(path))
+            
+            if is_img:
+                if self.options.get('smart_auto_image', False):
+                    _, img_format = SmartHeuristics.get_batch_image_suggestion(path.suffix)
+                    preset = "Custom"
+                else:
+                    img_format = self.options.get('image_format', "Keep Original Extension")
+                    preset = self.options.get('image_preset', "Lossless")
                 
-            codec = self.options.get('video_codec', 'AV1')
-            out_container = self.options.get('video_container', '.mkv')
-            remove_audio = self.options.get('remove_audio', False)
-            save_metadata = self.options.get('save_metadata', True)
-            extract_audio = self.options.get('extract_audio', False)
+                img_quality = int(self.options.get('img_quality', 85))
 
-            res_success, res_msg, res_out = self.video_proc.process(
-                str(path),
-                preset,
-                overwrite,
-                suffix,
-                target_dir,
-                crf_val,
-                self.options.get('video_fps', ""),
-                self.options.get('video_res', ""),
-                skip_existing,
-                codec,
-                out_container,
-                remove_audio,
-                save_metadata,
-                extract_audio
-            )
-            new_size = Path(res_out).stat().st_size if res_success and Path(res_out).exists() else 0
-            return res_success, res_msg, res_out, orig_size, new_size
-        
-        return False, "Unsupported file", "", 0, 0
+                res_success, res_msg, res_out = self.image_proc.process(
+                    str(path),
+                    preset,
+                    overwrite,
+                    suffix,
+                    target_dir,
+                    img_format,
+                    skip_existing,
+                    img_quality
+                )
+                new_size = Path(res_out).stat().st_size if res_success and Path(res_out).exists() else 0
+                return res_success, res_msg, res_out, orig_size, new_size
+            elif is_vid:
+                preset = self.options.get('video_preset', "Main AV1")
+                crf_val = self.options.get('video_crf', "")
+                if self.options.get('smart_auto_video', False):
+                    preset, crf_val, _, _ = SmartHeuristics.get_batch_video_suggestion(path.suffix)
+                    
+                codec = self.options.get('video_codec', 'AV1')
+                out_container = self.options.get('video_container', '.mkv')
+                remove_audio = self.options.get('remove_audio', False)
+                save_metadata = self.options.get('save_metadata', True)
+                extract_audio = self.options.get('extract_audio', False)
+
+                res_success, res_msg, res_out = self.video_proc.process(
+                    str(path),
+                    preset,
+                    overwrite,
+                    suffix,
+                    target_dir,
+                    crf_val,
+                    self.options.get('video_fps', ""),
+                    self.options.get('video_res', ""),
+                    skip_existing,
+                    codec,
+                    out_container,
+                    remove_audio,
+                    save_metadata,
+                    extract_audio
+                )
+                new_size = Path(res_out).stat().st_size if res_success and Path(res_out).exists() else 0
+                return res_success, res_msg, res_out, orig_size, new_size
+            
+            return False, "Unsupported file", "", 0, 0
+        except Exception as e:
+            return False, f"Crash: {str(e)}", "", 0, 0
 
     def _process_sequence(self, seq: dict) -> tuple[bool, str, str]:
+        import time
+        while self._is_paused and not self._is_cancelled:
+            time.sleep(0.5)
+
         if self._is_cancelled:
             return False, "Cancelled", ""
 
-        overwrite = self.options.get('overwrite', False)
-        use_suffix = self.options.get('use_suffix', True)
-        suffix = self.options.get('suffix', '_compressed') if use_suffix else ''
-        use_target = self.options.get('use_target', False)
-        target_dir = self.options.get('target_dir', '') if use_target else None
-        
-        # Sequences are processed via VideoProcessor
-        crf = self.options.get('video_crf', '')
-        fps = self.options.get('video_fps', '')
-        res = self.options.get('video_res', '')
-        
-        orig_size = 0
         try:
-            from .sequence_detector import get_sequence_files
-            seq_files = get_sequence_files(seq)
-            for sf in seq_files:
-                if Path(sf).exists():
-                    orig_size += Path(sf).stat().st_size
+            overwrite = self.options.get('overwrite', False)
+            use_suffix = self.options.get('use_suffix', True)
+            suffix = self.options.get('suffix', '_compressed') if use_suffix else ''
+            use_target = self.options.get('use_target', False)
+            target_dir = self.options.get('target_dir', '') if use_target else None
+            
+            # Sequences are processed via VideoProcessor
+            crf = self.options.get('video_crf', '')
+            fps = self.options.get('video_fps', '')
+            res = self.options.get('video_res', '')
+            
+            orig_size = 0
+            try:
+                seq_files = seq.get('files', [])
+                for sf in seq_files:
+                    if Path(sf).exists():
+                        orig_size += Path(sf).stat().st_size
+            except Exception as e:
+                print(f"[WARN] Failed to read sequence size: {e}")
+            
+            res_success, res_msg, res_out = self.video_proc.process_sequence(seq, overwrite, suffix, target_dir, crf, fps, res)
+            new_size = Path(res_out).stat().st_size if res_success and Path(res_out).exists() else 0
+            return res_success, res_msg, res_out, orig_size, new_size
         except Exception as e:
-            print(f"[WARN] Failed to read sequence size: {e}")
-        
-        res_success, res_msg, res_out = self.video_proc.process_sequence(seq, overwrite, suffix, target_dir, crf, fps, res)
-        new_size = Path(res_out).stat().st_size if res_success and Path(res_out).exists() else 0
-        return res_success, res_msg, res_out, orig_size, new_size
+            return False, f"Crash: {str(e)}", "", 0, 0
