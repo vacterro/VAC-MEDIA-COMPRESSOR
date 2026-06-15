@@ -3,7 +3,7 @@ from pathlib import Path
 from .utils import find_tool, run_subprocess
 
 class QuickConverter:
-    IMAGE_EXTS = frozenset({'.png', '.jpg', '.jpeg', '.tga', '.dds', '.pic', '.webp', '.bmp', '.tif', '.tiff', '.gif'})
+    IMAGE_EXTS = frozenset({'.png', '.jpg', '.jpeg', '.tga', '.dds', '.pic', '.webp', '.bmp', '.tif', '.tiff', '.gif', '.convert to webp'})
     VIDEO_EXTS = frozenset({'.mp4', '.mkv', '.avi', '.mov', '.m4v', '.webm', '.flv', '.wmv'})
 
     def __init__(self):
@@ -19,18 +19,24 @@ class QuickConverter:
             return "Video"
         return "Unknown"
 
-    def process_image(self, path: str, action: str, option: str) -> tuple[bool, str]:
+    def process_image(self, path: str, action: str, option: str, adjustments: dict = None) -> tuple[bool, str]:
         p = Path(path)
         if not p.exists():
             return False, "File not found"
 
-        # Special Legacy Actions
+        # Special Legacy / Texture Actions
         if action == "DDS -> PNG (texconv / Pillow)":
             return self._dds_to_png(p)
-        elif action == "PNG -> DDS (texconv BC7_UNORM)":
-            return self._png_to_dds(p)
+        elif action.startswith("PNG -> DDS"):
+            return self._png_to_dds_advanced(p, action)
         elif action == "PIC -> TGA (8x Upscale Nearest)":
             return self._pic_to_tga_8x(p)
+        elif action == "TGA -> PNG (Lossless)":
+            return self._convert_via_pillow(p, ".png", "PNG")
+        elif action == "PNG -> TGA (Lossless)":
+            return self._convert_via_pillow(p, ".tga", "TGA")
+        elif action.startswith("2x Upscale") or action.startswith("4x Upscale") or action.startswith("8x Upscale"):
+            return self._upscale_image(p, action)
 
         # Standard Magick Actions
         if not self.magick_bin:
@@ -58,12 +64,30 @@ class QuickConverter:
             action_args = ["-quality", "80"]
             out_suffix = "_web"
 
-        if option == "Resize 50%":
-            action_args.extend(["-resize", "50%"])
-            out_suffix += "_per50"
-        elif option == "Resize 200%":
-            action_args.extend(["-resize", "200%"])
-            out_suffix += "_per200"
+        import re
+        resize_match = re.search(r"Resize\s*(\d+)%", option, re.IGNORECASE)
+        if resize_match:
+            val = min(int(resize_match.group(1)), 1200)
+            action_args.extend(["-resize", f"{val}%"])
+            out_suffix += f"_per{val}"
+            
+        if adjustments:
+            b = adjustments.get('brightness', 100)
+            c = adjustments.get('contrast', 100)
+            s = adjustments.get('saturation', 100)
+            if b != 100 or c != 100 or s != 100:
+                # -brightness-contrast takes values between -100 to 100, where 0 is no change.
+                # our slider is 0 to 200, 100 is no change. So we subtract 100.
+                b_magick = b - 100
+                c_magick = c - 100
+                action_args.extend(["-brightness-contrast", f"{b_magick}x{c_magick}"])
+                
+                # -modulate brightness,saturation,hue. Default is 100,100,100.
+                # We already did brightness. Let's just do saturation. 100 means no change.
+                if s != 100:
+                    action_args.extend(["-modulate", f"100,{s},100"])
+                    
+                out_suffix += "_adj"
 
         dst_name = f"{p.stem}{out_suffix}{dst_ext}"
         dst = p.with_name(dst_name)
@@ -74,7 +98,7 @@ class QuickConverter:
             return True, f"Processed -> {dst.name}"
         return False, f"Failed: {msg}"
 
-    def process_video(self, path: str, action: str, option: str) -> tuple[bool, str]:
+    def process_video(self, path: str, action: str, option: str, adjustments: dict = None) -> tuple[bool, str]:
         p = Path(path)
         if not p.exists():
             return False, "File not found"
@@ -83,7 +107,17 @@ class QuickConverter:
             return False, "FFmpeg not found in PATH."
 
         dst_name = ""
-        cmd = [self.ffmpeg_bin, "-y", "-i", str(p)]
+        
+        # Build base input args
+        input_args = ["-y"]
+        if adjustments:
+            trim_start = adjustments.get('trim_start')
+            if trim_start:
+                input_args.extend(["-ss", trim_start])
+                
+        input_args.extend(["-i", str(p)])
+        
+        cmd = [self.ffmpeg_bin] + input_args
 
         if action == "Extract Audio (MP3)":
             dst_name = f"{p.stem}_audio.mp3"
@@ -122,6 +156,11 @@ class QuickConverter:
             cmd.extend(["-c", "copy"]) # Best effort copy, ffmpeg auto remuxes
 
         if action != "Extract Frames":
+            if adjustments:
+                trim_end = adjustments.get('trim_end')
+                if trim_end:
+                    cmd.extend(["-to", trim_end])
+                    dst_name = dst_name.replace(".", "_trimmed.")
             dst = p.with_name(dst_name)
             cmd.append(str(dst))
         else:
@@ -148,11 +187,21 @@ class QuickConverter:
         except Exception as e:
             return False, f"Failed: {e}"
 
-    def _png_to_dds(self, p: Path) -> tuple[bool, str]:
-        if not self.texconv_bin: return False, "texconv.exe required"
-        cmd = [self.texconv_bin, "-ft", "dds", "-f", "BC7_UNORM", "-y", "-o", str(p.parent), str(p)]
+    def _png_to_dds_advanced(self, p: Path, action: str) -> tuple[bool, str]:
+        if not self.texconv_bin: 
+            return False, "texconv.exe required for DDS encoding"
+        
+        fmt = "BC7_UNORM"
+        if "BC3" in action:
+            fmt = "BC3_UNORM"
+        elif "BC1" in action:
+            fmt = "BC1_UNORM"
+        elif "BC5" in action:
+            fmt = "BC5_UNORM"
+            
+        cmd = [self.texconv_bin, "-ft", "dds", "-f", fmt, "-y", "-o", str(p.parent), str(p)]
         success, msg = run_subprocess(cmd)
-        if success: return True, "Converted to DDS"
+        if success: return True, f"Converted to DDS ({fmt})"
         return False, f"texconv failed: {msg}"
 
     def _pic_to_tga_8x(self, p: Path) -> tuple[bool, str]:
@@ -164,3 +213,34 @@ class QuickConverter:
             return True, "Upscaled 8x (NEAREST) to TGA"
         except Exception as e:
             return False, f"Failed: {e}"
+            
+    def _convert_via_pillow(self, p: Path, ext: str, fmt: str) -> tuple[bool, str]:
+        try:
+            from PIL import Image
+            with Image.open(p) as img:
+                if fmt == "PNG" and img.mode not in ["RGB", "RGBA"]:
+                    img = img.convert("RGBA")
+                img.save(p.with_suffix(ext), format=fmt)
+            return True, f"Converted to {fmt}"
+        except Exception as e:
+            return False, f"Failed: {e}"
+            
+    def _upscale_image(self, p: Path, action: str) -> tuple[bool, str]:
+        try:
+            from PIL import Image
+            with Image.open(p) as img:
+                scale = 2
+                if "4x" in action: scale = 4
+                if "8x" in action: scale = 8
+                
+                resample_method = Image.Resampling.LANCZOS
+                if "Nearest" in action:
+                    resample_method = Image.Resampling.NEAREST
+                    
+                img = img.resize((img.width * scale, img.height * scale), resample=resample_method)
+                
+                out_name = f"{p.stem}_{scale}x_upscale{p.suffix}"
+                img.save(p.with_name(out_name))
+            return True, f"Upscaled {scale}x successfully"
+        except Exception as e:
+            return False, f"Failed upscaling: {e}"

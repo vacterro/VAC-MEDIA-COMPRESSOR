@@ -59,6 +59,82 @@ DEFAULT_THEMES = {
         "secondary_hover": "#3EDB69",
         "danger": "#FF5555",
         "danger_hover": "#FF3333"
+    },
+    "Charcoal Dark": {
+        "bg_base": "#1E1E1E",
+        "bg_surface": "#252526",
+        "bg_surface_hover": "#2D2D30",
+        "bg_header": "#1A1A1A",
+        "bg_log": "#181818",
+        "text_main": "#D4D4D4",
+        "text_muted": "#858585",
+        "border": "#3E3E42",
+        "primary": "#007ACC",
+        "primary_hover": "#1C97EA",
+        "primary_pressed": "#005A9E",
+        "primary_button": "#0E639C",
+        "primary_button_hover": "#1177BB",
+        "secondary": "#4EC9B0",
+        "secondary_hover": "#42A892",
+        "danger": "#F14C4C",
+        "danger_hover": "#D13A3A"
+    },
+    "Midnight Violet": {
+        "bg_base": "#0E0914",
+        "bg_surface": "#16111D",
+        "bg_surface_hover": "#221A2D",
+        "bg_header": "#0B0710",
+        "bg_log": "#09060D",
+        "text_main": "#E2D9EE",
+        "text_muted": "#8A7D9D",
+        "border": "#2C223C",
+        "primary": "#B271FF",
+        "primary_hover": "#C996FF",
+        "primary_pressed": "#8833FF",
+        "primary_button": "#5E2C99",
+        "primary_button_hover": "#7D3DCC",
+        "secondary": "#F92AAD",
+        "secondary_hover": "#D71891",
+        "danger": "#FF2A55",
+        "danger_hover": "#D6183D"
+    },
+    "Obsidian Green": {
+        "bg_base": "#080C0A",
+        "bg_surface": "#0C1310",
+        "bg_surface_hover": "#15201A",
+        "bg_header": "#050807",
+        "bg_log": "#030504",
+        "text_main": "#D1E8DB",
+        "text_muted": "#698F7A",
+        "border": "#1A2822",
+        "primary": "#00FF66",
+        "primary_hover": "#4DFF94",
+        "primary_pressed": "#00CC52",
+        "primary_button": "#008033",
+        "primary_button_hover": "#00B347",
+        "secondary": "#00E5FF",
+        "secondary_hover": "#00B8CC",
+        "danger": "#FF3333",
+        "danger_hover": "#CC0000"
+    },
+    "Eye Care Gold": {
+        "bg_base": "#1a1814",
+        "bg_surface": "#26221c",
+        "bg_surface_hover": "#332d25",
+        "bg_header": "#14120e",
+        "bg_log": "#14120e",
+        "text_main": "#e6d5b8",
+        "text_muted": "#a69b86",
+        "border": "#40392f",
+        "primary": "#d4af37",
+        "primary_hover": "#ebd373",
+        "primary_pressed": "#ad8c26",
+        "primary_button": "#8c721f",
+        "primary_button_hover": "#ad8c26",
+        "secondary": "#a16b47",
+        "secondary_hover": "#c28760",
+        "danger": "#a34141",
+        "danger_hover": "#c45656"
     }
 }
 
@@ -68,8 +144,10 @@ class ThemeManager:
         self.themes = DEFAULT_THEMES.copy()
         
         self.config = {
-            "active_theme": "Synthwave",
-            "custom_palette": self.themes["Synthwave"].copy()
+            "active_theme": "Eye Care Gold",
+            "font_family": "",
+            "font_size": 14,
+            "custom_palette": self.themes["Eye Care Gold"].copy()
         }
         self.load_config()
 
@@ -103,4 +181,18 @@ class ThemeManager:
     def update_custom_color(self, key: str, hex_color: str):
         self.config["custom_palette"][key] = hex_color
         self.themes["Custom"] = self.config["custom_palette"]
+        self.save_config()
+
+    def get_font_family(self) -> str:
+        return self.config.get("font_family", "")
+
+    def set_font_family(self, font: str):
+        self.config["font_family"] = font
+        self.save_config()
+
+    def get_font_size(self) -> int:
+        return self.config.get("font_size", 14)
+
+    def set_font_size(self, size: int):
+        self.config["font_size"] = size
         self.save_config()

@@ -1,5 +1,7 @@
 {
-    "active_theme": "Ocean Blue",
+    "active_theme": "Eye Care Gold",
+    "font_family": "Verdana_m1",
+    "font_size": 14,
     "custom_palette": {
         "bg_base": "#121212",
         "bg_surface": "#1E1E1E",
@@ -9,7 +11,7 @@
         "text_main": "#FFFFFF",
         "text_muted": "#A0A0A0",
         "border": "#333333",
-        "primary": "#313100",
+        "primary": "#6B6B6B",
         "primary_hover": "#D0A9FF",
         "primary_pressed": "#9C4DFF",
         "primary_button": "#3700B3",

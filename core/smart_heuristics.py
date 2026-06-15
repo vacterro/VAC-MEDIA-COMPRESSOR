@@ -1,14 +1,15 @@
 class SmartHeuristics:
     BATCH_IMAGE_SUGGESTIONS = {
-        '.png': ('Quality > Size', 'Convert to WebP'),
-        '.jpg': ('Web', 'Convert to WebP'),
-        '.jpeg': ('Web', 'Convert to WebP'),
-        '.bmp': ('Quality > Size', 'Convert to WebP'),
-        '.tga': ('Quality > Size', 'Convert to WebP'),
-        '.dds': ('Quality > Size', 'Convert to PNG'),
-        '.gif': ('Web', 'Convert to WebP'),
+        '.png': ('Quality > Size', 'WebP'),
+        '.jpg': ('Web', 'WebP'),
+        '.jpeg': ('Web', 'WebP'),
+        '.bmp': ('Quality > Size', 'WebP'),
+        '.tga': ('Quality > Size', 'WebP'),
+        '.dds': ('Quality > Size', 'PNG'),
+        '.gif': ('Web', 'WebP'),
         '.webp': ('Lossless', 'Keep Original Extension'),
         '.avif': ('Lossless', 'Keep Original Extension'),
+        '.convert to webp': ('Quality > Size', 'WebP'),
     }
 
     BATCH_VIDEO_SUGGESTIONS = {
@@ -37,6 +38,7 @@ class SmartHeuristics:
         '.webm': ('Compress MP4 (AV1)', 'Default'),
         '.wmv': ('Convert Format (MP4)', 'Default'),
         '.wav': ('Extract Audio (MP3)', 'Default'),
+        '.convert to webp': ('Convert to WEBP', 'Default'),
     }
 
     @classmethod

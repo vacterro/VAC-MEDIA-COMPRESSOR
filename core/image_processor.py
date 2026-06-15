@@ -4,6 +4,8 @@ import shutil
 from .utils import find_tool, run_subprocess
 
 class ImageProcessor:
+    SUPPORTED_EXTS = frozenset({'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.avif', '.tga', '.dds', '.jfif', '.heic', '.hdr', '.exr', '.tiff', '.tif', '.ico', '.convert to webp'})
+
     def __init__(self):
         self.magick_bin = find_tool("magick")
         self.jpegoptim_bin = find_tool("jpegoptim")
@@ -11,9 +13,9 @@ class ImageProcessor:
         
     def is_supported(self, file_path: str) -> bool:
         ext = Path(file_path).suffix.lower()
-        return ext in ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif', '.avif', '.tga', '.dds', '.jfif']
+        return ext in self.SUPPORTED_EXTS
 
-    def process(self, file_path: str, preset: str, overwrite: bool, suffix: str, target_dir: str = None, out_format: str = "Keep Original Extension") -> tuple[bool, str, str]:
+    def process(self, file_path: str, preset: str, overwrite: bool, suffix: str, target_dir: str = None, out_format: str = "Keep Original Extension", skip_existing: bool = False, img_quality: int = 85) -> tuple[bool, str, str]:
         """
         Returns (success, message, final_output_path)
         """
@@ -36,6 +38,10 @@ class ImageProcessor:
         else:
             out_path = base_dir / f"{p.stem}{suffix}{out_ext}"
 
+        # If skip_existing is checked and the target exists, we just skip it entirely
+        if skip_existing and out_path.exists() and out_path != p:
+            return True, "Skipped (already exists)", str(out_path)
+
         # If it's not overwriting and file exists, abort to prevent accidental overwrites
         if out_path.exists() and not overwrite and out_path != p:
             # We can auto-rename or just return error. Let's append an index.
@@ -53,6 +59,8 @@ class ImageProcessor:
                 success, msg = self._process_magick(p, out_path, quality=100)
             else:
                 success, msg = self._process_lossless(p, out_path, overwrite)
+        elif preset == "Custom":
+            success, msg = self._process_magick(p, out_path, quality=img_quality)
         elif preset == "Web":
             success, msg = self._process_magick(p, out_path, quality=80)
         elif preset == "Quality > Size":
@@ -69,6 +77,9 @@ class ImageProcessor:
             except Exception as e:
                 msg += f" (Warning: could not delete original: {e})"
 
+        if success and not out_path.exists():
+            return False, f"Processed, but output file {out_path.name} was not found", ""
+
         return success, msg, str(out_path)
 
     def _process_lossless(self, p: Path, out_path: Path, overwrite: bool) -> tuple[bool, str]:
@@ -76,13 +87,19 @@ class ImageProcessor:
         if ext in ['.jpg', '.jpeg', '.jfif'] and self.jpegoptim_bin:
             target = out_path
             if target != p:
-                shutil.copy2(p, target)
+                try:
+                    shutil.copy2(p, target)
+                except Exception as e:
+                    return False, f"Failed to copy for processing: {e}"
             cmd = [self.jpegoptim_bin, "--preserve", str(target)]
             return run_subprocess(cmd)
         elif ext == '.png' and self.oxipng_bin:
             target = out_path
             if target != p:
-                shutil.copy2(p, target)
+                try:
+                    shutil.copy2(p, target)
+                except Exception as e:
+                    return False, f"Failed to copy for processing: {e}"
             cmd = [self.oxipng_bin, "-o4", "--preserve", str(target)]
             return run_subprocess(cmd)
         elif self.magick_bin:

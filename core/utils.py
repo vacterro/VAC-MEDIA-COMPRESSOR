@@ -2,15 +2,23 @@ import os
 import shutil
 import subprocess
 import threading
+from pathlib import Path
 
 _tool_cache = {}
 _active_processes = set()
 _process_lock = threading.Lock()
 
 def find_tool(name: str) -> str:
-    """Find a tool in PATH with caching."""
+    """Find a tool in local ./bin directory first, then in PATH with caching."""
     if name in _tool_cache:
         return _tool_cache[name]
+        
+    # Check local bin folder first
+    local_bin = Path(__file__).parent.parent / "bin" / f"{name}.exe"
+    if local_bin.exists():
+        _tool_cache[name] = str(local_bin)
+        return str(local_bin)
+        
     found = shutil.which(name)
     result = found if found else ""
     _tool_cache[name] = result

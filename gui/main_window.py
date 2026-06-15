@@ -6,9 +6,11 @@ from PyQt6.QtWidgets import (
     QPushButton, QFrame, QCheckBox, QComboBox, QLineEdit, 
     QProgressBar, QTextEdit, QGroupBox, QFileDialog, QTabWidget,
     QAbstractItemView, QListView, QTreeView, QTableWidget, QTableWidgetItem,
-    QHeaderView, QColorDialog
+    QHeaderView, QColorDialog, QSlider, QButtonGroup, QGridLayout,
+    QSystemTrayIcon, QMenu
 )
-from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal
+from PyQt6.QtGui import QIcon, QAction
 from core.batch_manager import BatchManager
 from core.quick_converter import QuickConverter
 from core.quick_worker import QuickWorker
@@ -30,8 +32,21 @@ VID_HINTS = {
 
 IMAGE_ACTIONS = [
     "Convert to JPG", "Convert to WEBP", "Lossy Compress", "Web Compress",
-    "Palette 512 colors", "Palette 2048 colors", "DDS -> PNG (texconv / Pillow)", 
-    "PNG -> DDS (texconv BC7_UNORM)", "PIC -> TGA (8x Upscale Nearest)"
+    "Palette 512 colors", "Palette 2048 colors", 
+    "DDS -> PNG (texconv / Pillow)", 
+    "PNG -> DDS (texconv BC7_UNORM)", 
+    "PNG -> DDS (texconv BC3_UNORM)",
+    "PNG -> DDS (texconv BC1_UNORM)",
+    "PNG -> DDS Normal Map (BC5_UNORM)",
+    "PIC -> TGA (8x Upscale Nearest)",
+    "TGA -> PNG (Lossless)",
+    "PNG -> TGA (Lossless)",
+    "2x Upscale (Nearest / Pixel Art)",
+    "4x Upscale (Nearest / Pixel Art)",
+    "8x Upscale (Nearest / Pixel Art)",
+    "2x Upscale (Lanczos / Smooth)",
+    "4x Upscale (Lanczos / Smooth)",
+    "8x Upscale (Lanczos / Smooth)"
 ]
 IMAGE_OPTIONS = ["Default", "Resize 50%", "Resize 200%"]
 
@@ -43,6 +58,63 @@ VIDEO_ACTIONS = [
     "Convert Format (MP4)", "Convert Format (WebM)"
 ]
 VIDEO_OPTIONS = ["Default"]
+
+class SegmentedControl(QWidget):
+    currentTextChanged = pyqtSignal(str)
+
+    def __init__(self, items, default=None):
+        super().__init__()
+        self.layout = QHBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+        
+        self.button_group = QButtonGroup(self)
+        self.button_group.setExclusive(True)
+        self.button_group.buttonClicked.connect(self._on_button_clicked)
+        
+        self.buttons = []
+        for i, item in enumerate(items):
+            btn = QPushButton(item)
+            btn.setCheckable(True)
+            # Style them so they look grouped
+            btn.setStyleSheet("""
+                QPushButton {
+                    border-radius: 0px;
+                    margin: 0px;
+                }
+                QPushButton:checked {
+                    background-color: #BB86FC;
+                    color: #000000;
+                }
+            """)
+            if i == 0:
+                btn.setStyleSheet(btn.styleSheet() + "QPushButton { border-top-left-radius: 4px; border-bottom-left-radius: 4px; border-right: none; }")
+            elif i == len(items) - 1:
+                btn.setStyleSheet(btn.styleSheet() + "QPushButton { border-top-right-radius: 4px; border-bottom-right-radius: 4px; border-left: none; }")
+            else:
+                btn.setStyleSheet(btn.styleSheet() + "QPushButton { border-left: none; border-right: none; }")
+                
+            self.button_group.addButton(btn)
+            self.layout.addWidget(btn)
+            self.buttons.append(btn)
+            
+        if default:
+            self.setCurrentText(default)
+        elif self.buttons:
+            self.buttons[0].setChecked(True)
+            
+    def _on_button_clicked(self, btn):
+        self.currentTextChanged.emit(btn.text())
+        
+    def currentText(self):
+        btn = self.button_group.checkedButton()
+        return btn.text() if btn else ""
+        
+    def setCurrentText(self, text):
+        for btn in self.buttons:
+            if btn.text() == text:
+                btn.setChecked(True)
+                break
 
 class DropZone(QFrame):
     def __init__(self, on_drop_callback, text="Drag & Drop Files or Folders Here"):
@@ -93,15 +165,22 @@ class DropZone(QFrame):
             self.on_drop_callback(paths)
 
     def browse_files(self):
-        dialog = QFileDialog(self)
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("VAC", "SmartVacMediaCompressor")
+        last_dir = settings.value("last_dir", "")
+        dialog = QFileDialog(self, "Select Files", last_dir)
         dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
         if dialog.exec():
+            settings.setValue("last_dir", dialog.directory().absolutePath())
             paths = dialog.selectedFiles()
             if paths:
                 self.on_drop_callback(paths)
 
     def browse_dirs(self):
-        dialog = QFileDialog(self)
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("VAC", "SmartVacMediaCompressor")
+        last_dir = settings.value("last_dir", "")
+        dialog = QFileDialog(self, "Select Directories", last_dir)
         dialog.setFileMode(QFileDialog.FileMode.Directory)
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
         dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
@@ -110,6 +189,8 @@ class DropZone(QFrame):
                 view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
 
         if dialog.exec():
+            from PyQt6.QtCore import QSettings
+            QSettings("VAC", "SmartVacMediaCompressor").setValue("last_dir", dialog.directory().absolutePath())
             paths = dialog.selectedFiles()
             if paths:
                 self.on_drop_callback(paths)
@@ -118,31 +199,82 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SMART VAC MEDIA COMPRESSOR")
-        self.setMinimumSize(950, 750)
+        self.setMinimumSize(600, 400)
 
         self.theme_manager = ThemeManager()
-        self.setStyleSheet(generate_stylesheet(self.theme_manager.get_palette()))
+        palette = self.theme_manager.get_palette()
+        font_family = self.theme_manager.get_font_family()
+        font_size = self.theme_manager.get_font_size()
+        self.setStyleSheet(generate_stylesheet(palette, font_family, font_size))
+
+        self.total_original_bytes = 0
+        self.total_compressed_bytes = 0
 
         self.batch_paths = set()
-        self.quick_files = [] # list of dicts: {'path', 'type', 'action_cmb', 'option_cmb', 'status_item'}
         self.worker = None
         self.quick_converter = QuickConverter()
+        
+        self.setup_system_tray()
 
         self.settings = QSettings("SmartVac", "MediaCompressor")
 
         self._init_ui()
         self.load_settings()
 
+    def setup_system_tray(self):
+        self.tray_icon = QSystemTrayIcon(self)
+        icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "icon.svg")
+        if os.path.exists(icon_path):
+            self.app_icon = QIcon(icon_path)
+            self.setWindowIcon(self.app_icon)
+            self.tray_icon.setIcon(self.app_icon)
+        
+        show_action = QAction("Show", self)
+        quit_action = QAction("Exit", self)
+        
+        show_action.triggered.connect(self.showNormal)
+        # Use QApplication.instance().quit() to exit completely
+        from PyQt6.QtWidgets import QApplication
+        quit_action.triggered.connect(QApplication.instance().quit)
+        
+        tray_menu = QMenu()
+        tray_menu.addAction(show_action)
+        tray_menu.addAction(quit_action)
+        self.tray_icon.setContextMenu(tray_menu)
+        
+        self.tray_icon.activated.connect(self.tray_icon_activated)
+        self.tray_icon.show()
+
+    def tray_icon_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            if self.isHidden() or self.isMinimized():
+                self.showNormal()
+                self.activateWindow()
+            else:
+                self.hide()
+
+    def changeEvent(self, event):
+        if event.type() == event.Type.WindowStateChange:
+            if self.windowState() & Qt.WindowState.WindowMinimized:
+                # If a worker is running (batch or quick)
+                is_working = (self.worker and self.worker.isRunning())
+                if is_working:
+                    self.hide()
+                    self.tray_icon.showMessage(
+                        "Compressor Running",
+                        "Minimized to system tray to save resources.",
+                        QSystemTrayIcon.MessageIcon.Information,
+                        2000
+                    )
+        super().changeEvent(event)
+
     def _init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setContentsMargins(4, 4, 4, 4)
 
-        header_label = QLabel("SMART VAC MEDIA COMPRESSOR")
-        header_label.setObjectName("titleLabel")
-        header_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        main_layout.addWidget(header_label)
+        # Title label removed per user request
 
         self.tabs = QTabWidget()
         self.tab_batch = QWidget()
@@ -160,11 +292,11 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.tabs)
 
         progress_layout = QHBoxLayout()
-        self.cancel_btn = QPushButton("CANCEL")
+        self.cancel_btn = QPushButton("Cancel Operation")
         self.cancel_btn.setObjectName("cancelBtn")
         self.cancel_btn.clicked.connect(self.cancel_processing)
         self.cancel_btn.setEnabled(False)
-        self.cancel_btn.setMinimumWidth(100)
+        self.cancel_btn.setMinimumWidth(150)
         progress_layout.addWidget(self.cancel_btn)
 
         self.progress_bar = QProgressBar()
@@ -174,88 +306,193 @@ class MainWindow(QMainWindow):
         
         main_layout.addLayout(progress_layout)
 
+        # Size Rewards Dashboard
+        self.rewards_board = QFrame()
+        self.rewards_board.setObjectName("rewardsBoard")
+        rewards_layout = QHBoxLayout(self.rewards_board)
+        
+        self.lbl_orig_size = QLabel("Original: 0.0 MB")
+        self.lbl_orig_size.setObjectName("originalText")
+        
+        self.lbl_new_size = QLabel("New: 0.0 MB")
+        self.lbl_new_size.setObjectName("newText")
+        
+        self.lbl_saved_size = QLabel("🏆 Total Saved: 0.0 MB (0%)")
+        self.lbl_saved_size.setObjectName("savedText")
+        
+        rewards_layout.addWidget(self.lbl_orig_size)
+        rewards_layout.addStretch()
+        rewards_layout.addWidget(self.lbl_saved_size)
+        rewards_layout.addStretch()
+        rewards_layout.addWidget(self.lbl_new_size)
+        
+        main_layout.addWidget(self.rewards_board)
+
         self.log_view = QTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setMaximumHeight(150)
+        self.log_view.setMaximumHeight(80)
         main_layout.addWidget(self.log_view)
 
     def _setup_batch_tab(self):
-        layout = QVBoxLayout(self.tab_batch)
-        self.batch_drop_zone = DropZone(self.on_batch_dropped, "Drag & Drop Files or Folders Here")
-        layout.addWidget(self.batch_drop_zone)
+        root_layout = QHBoxLayout(self.tab_batch)
+        root_layout.setSpacing(6)
 
-        paths_layout = QHBoxLayout()
-        self.batch_paths_label = QLabel("No files selected")
-        self.batch_paths_label.setObjectName("subtitleLabel")
-        clear_btn = QPushButton("Clear Selection")
-        clear_btn.setObjectName("browseBtn")
-        clear_btn.clicked.connect(self.clear_batch_selection)
-        paths_layout.addWidget(self.batch_paths_label)
-        paths_layout.addStretch()
-        paths_layout.addWidget(clear_btn)
-        layout.addLayout(paths_layout)
-
-        # General Options goes on top, spanning full width
-        gen_group = QGroupBox("General Options")
-        gen_layout = QVBoxLayout()
+        # Left side: Configuration (Now using Tabs)
+        left_tabs = QTabWidget()
         
-        # Row 1: Overwrite and Recursive
-        chk_layout = QHBoxLayout()
+        # --- GENERAL SETTINGS TAB ---
+        gen_tab = QWidget()
+        gen_layout = QVBoxLayout(gen_tab)
+        
+        chk_layout = QVBoxLayout()
+        row1 = QHBoxLayout()
+        row2 = QHBoxLayout()
         self.chk_recursive = QCheckBox("Recursive directory scan")
+        self.chk_recursive.setToolTip("If you drop a folder, should the compressor scan all sub-folders inside it as well?\nCheck this to process deeply nested files.")
         self.chk_recursive.setChecked(True)
+        
         self.chk_overwrite = QCheckBox("Replace original (Overwrite)")
-        chk_layout.addWidget(self.chk_recursive)
-        chk_layout.addWidget(self.chk_overwrite)
-        chk_layout.addStretch()
+        self.chk_overwrite.setToolTip("DANGEROUS: If checked, the original file will be completely replaced by the compressed version.\nMake sure you have backups!")
+        
+        self.chk_skip_existing = QCheckBox("Skip Existing Files (Resume)")
+        self.chk_skip_existing.setChecked(True)
+        self.chk_skip_existing.setToolTip("If the target compressed file already exists, skip it instead of re-compressing.\nExtremely useful for resuming a cancelled batch job without starting over.")
+        
+        self.chk_auto_process = QCheckBox("Auto-process on drop")
+        self.chk_auto_process.setChecked(False)
+        self.chk_auto_process.setToolTip("Automatically start the compression process the moment you drop files into the queue.\nTurn this off if you want to review the queue first.")
+        
+        row1.addWidget(self.chk_recursive)
+        row1.addWidget(self.chk_overwrite)
+        row1.addStretch()
+        
+        row2.addWidget(self.chk_skip_existing)
+        row2.addWidget(self.chk_auto_process)
+        row2.addStretch()
+        
+        chk_layout.addLayout(row1)
+        chk_layout.addLayout(row2)
         gen_layout.addLayout(chk_layout)
 
         # Row 2: Target folder and Suffix
-        target_suffix_layout = QHBoxLayout()
+        target_layout = QHBoxLayout()
         
         self.chk_target = QCheckBox("Output to Target Folder:")
+        self.chk_target.setToolTip("Enable this to funnel all compressed files into a specific directory, rather than alongside their originals.")
+        
         self.inp_target = QLineEdit()
         self.inp_target.setPlaceholderText("Original directory (default)")
         self.inp_target.setEnabled(False)
+        self.inp_target.setToolTip("The absolute path where all processed files will be saved.")
+        
         self.btn_target = QPushButton("Browse")
         self.btn_target.setEnabled(False)
-        self.chk_target.toggled.connect(self.inp_target.setEnabled)
-        self.chk_target.toggled.connect(self.btn_target.setEnabled)
+        self.btn_target.setToolTip("Click to select an output folder via the file explorer.")
         self.btn_target.clicked.connect(self.browse_target_folder)
         
-        target_suffix_layout.addWidget(self.chk_target)
-        target_suffix_layout.addWidget(self.inp_target)
-        target_suffix_layout.addWidget(self.btn_target)
+        self.chk_target.toggled.connect(self.inp_target.setEnabled)
+        self.chk_target.toggled.connect(self.btn_target.setEnabled)
+        
+        target_layout.addWidget(self.chk_target)
+        target_layout.addWidget(self.inp_target)
+        target_layout.addWidget(self.btn_target)
 
-        target_suffix_layout.addSpacing(20)
-
+        suffix_layout = QHBoxLayout()
         self.chk_suffix = QCheckBox("Add suffix:")
         self.chk_suffix.setChecked(True)
+        self.chk_suffix.setToolTip("Appends a text string to the end of the filename (e.g. image_compressed.jpg).\nPrevents accidental overwrites.")
+        
         self.inp_suffix = QLineEdit("_compressed")
         self.inp_suffix.setPlaceholderText("e.g. _compressed")
+        self.inp_suffix.setToolTip("The exact text to append to the end of the filename.")
         self.chk_suffix.toggled.connect(self.inp_suffix.setEnabled)
         
-        target_suffix_layout.addWidget(self.chk_suffix)
-        target_suffix_layout.addWidget(self.inp_suffix)
+        suffix_layout.addWidget(self.chk_suffix)
+        suffix_layout.addWidget(self.inp_suffix)
+        suffix_layout.addStretch()
         
-        gen_layout.addLayout(target_suffix_layout)
-        gen_group.setLayout(gen_layout)
-        layout.addWidget(gen_group)
+        gen_layout.addLayout(target_layout)
+        gen_layout.addLayout(suffix_layout)
+        
+        # Row 3: Skip Pattern
+        skip_pattern_layout = QVBoxLayout()
+        skip_pattern_header = QHBoxLayout()
+        
+        self.chk_skip_pattern = QCheckBox("Skip files if file name matches:")
+        self.chk_skip_pattern.setToolTip("Enable to selectively skip processing files based on their names.")
+        self.chk_skip_pattern.setChecked(False)
+        
+        self.cmb_skip_mode = QComboBox()
+        self.cmb_skip_mode.addItems(["Contains", "Exact Match", "Starts With", "Ends With", "Regex"])
+        self.cmb_skip_mode.setToolTip("Select the matching mode.")
+        
+        self.chk_skip_case = QCheckBox("Case Sensitive")
+        
+        skip_pattern_header.addWidget(self.chk_skip_pattern)
+        skip_pattern_header.addWidget(self.cmb_skip_mode)
+        skip_pattern_header.addWidget(self.chk_skip_case)
+        skip_pattern_header.addStretch()
+        
+        self.inp_skip_pattern = QLineEdit()
+        self.inp_skip_pattern.setPlaceholderText("e.g. _preview, backup, .bak (comma separated)")
+        self.inp_skip_pattern.setToolTip("Enter keywords or patterns separated by commas. Files matching ANY of these will be skipped.")
+        self.inp_skip_pattern.setEnabled(False)
+        self.cmb_skip_mode.setEnabled(False)
+        self.chk_skip_case.setEnabled(False)
+        
+        def on_skip_toggled(checked):
+            self.inp_skip_pattern.setEnabled(checked)
+            self.cmb_skip_mode.setEnabled(checked)
+            self.chk_skip_case.setEnabled(checked)
+            
+        self.chk_skip_pattern.toggled.connect(on_skip_toggled)
+        
+        skip_pattern_layout.addLayout(skip_pattern_header)
+        skip_pattern_layout.addWidget(self.inp_skip_pattern)
+        
+        gen_layout.addLayout(skip_pattern_layout)
+        gen_layout.addStretch()
+        left_tabs.addTab(gen_tab, "General Settings")
 
-        # Media Processing Split
-        media_options_layout = QHBoxLayout()
-        media_options_layout.setSpacing(15)
-
-        img_group = QGroupBox("Image Processing")
-        img_layout = QVBoxLayout()
+        # --- IMAGE PROCESSING TAB ---
+        img_tab = QWidget()
+        img_layout = QVBoxLayout(img_tab)
         self.chk_process_img = QCheckBox("Process Images")
+        self.chk_process_img.setToolTip("Uncheck this if you drop a folder with both images and videos, but ONLY want to compress the videos.")
         self.chk_process_img.setChecked(True)
-        self.cmb_img_preset = QComboBox()
-        self.cmb_img_preset.addItems(list(IMG_HINTS.keys()))
+        self.cmb_img_preset = SegmentedControl(list(IMG_HINTS.keys()) + ["Custom"], "Lossless")
+        self.cmb_img_preset.setToolTip("Select an overarching compression strategy. 'Lossless' keeps perfect quality, 'Web' balances size, 'Size > Quality' crushes the file size.")
         self.img_hint_label = QLabel(IMG_HINTS["Lossless"])
         self.img_hint_label.setObjectName("hintLabel")
         self.img_hint_label.setWordWrap(True)
+        
+        self.img_quality_layout = QHBoxLayout()
+        lbl_q = QLabel("Quality:")
+        lbl_q.setToolTip("Manual quality override (0-100). Higher means larger file size but better visual fidelity.")
+        self.img_quality_layout.addWidget(lbl_q)
+        self.sld_img_quality = QSlider(Qt.Orientation.Horizontal)
+        self.sld_img_quality.setToolTip("Slide left for smaller file size, right for better quality.")
+        self.sld_img_quality.setRange(10, 100)
+        self.sld_img_quality.setValue(85)
+        self.lbl_img_quality_val = QLabel("85")
+        self.sld_img_quality.valueChanged.connect(lambda v: self.lbl_img_quality_val.setText(str(v)))
+        self.btn_reset_img_quality = QPushButton("⟲")
+        self.btn_reset_img_quality.setToolTip("Reset to Default Quality (85)")
+        self.btn_reset_img_quality.setFixedSize(20, 20)
+        self.btn_reset_img_quality.clicked.connect(lambda: self.sld_img_quality.setValue(85))
+        
+        self.img_quality_layout.addWidget(self.sld_img_quality)
+        self.img_quality_layout.addWidget(self.lbl_img_quality_val)
+        self.img_quality_layout.addWidget(self.btn_reset_img_quality)
+        
         def on_img_preset_changed(text):
-            self.img_hint_label.setText(IMG_HINTS.get(text, ""))
+            if text in IMG_HINTS:
+                self.img_hint_label.setText(IMG_HINTS[text])
+            else:
+                self.img_hint_label.setText("Custom manual quality slider.")
+            
+            # Show slider if not Lossless
+            self.sld_img_quality.setEnabled(text != "Lossless")
                 
         self.cmb_img_preset.currentTextChanged.connect(on_img_preset_changed)
         
@@ -275,16 +512,16 @@ class MainWindow(QMainWindow):
         
         format_layout = QHBoxLayout()
         self.chk_force_img_format = QCheckBox("Force Output Format:")
+        self.chk_force_img_format.setToolTip("Override the original file format. For example, convert all dropped PNGs and BMPs into WebP automatically.")
         self.chk_force_img_format.setChecked(False)
         self.chk_force_img_format.toggled.connect(
             lambda checked: self.cmb_img_format.setEnabled(checked and not self.chk_smart_img.isChecked())
         )
         
-        self.cmb_img_format = QComboBox()
-        self.cmb_img_format.addItems([
-            "Keep Original Extension", "Convert to WebP", 
-            "Convert to AVIF", "Convert to JPG", "Convert to PNG"
-        ])
+        self.cmb_img_format = SegmentedControl([
+            "Keep Original", "WebP", "AVIF", "JPG", "PNG", "TIFF", "ICO"
+        ], "Keep Original")
+        self.cmb_img_format.setToolTip("Choose the target format container for the output image.")
         self.cmb_img_format.setEnabled(False)
         
         format_layout.addWidget(self.chk_force_img_format)
@@ -295,18 +532,20 @@ class MainWindow(QMainWindow):
         img_layout.addWidget(QLabel("Preset:"))
         img_layout.addWidget(self.cmb_img_preset)
         img_layout.addWidget(self.img_hint_label)
-        img_layout.addSpacing(10)
+        img_layout.addLayout(self.img_quality_layout)
+        img_layout.addSpacing(4)
         img_layout.addLayout(format_layout)
         img_layout.addStretch()
-        img_group.setLayout(img_layout)
-        media_options_layout.addWidget(img_group)
+        left_tabs.addTab(img_tab, "Image Processing")
 
-        vid_group = QGroupBox("Video Processing")
-        vid_layout = QVBoxLayout()
+        # --- VIDEO PROCESSING TAB ---
+        vid_tab = QWidget()
+        vid_layout = QVBoxLayout(vid_tab)
         self.chk_process_vid = QCheckBox("Process Videos")
+        self.chk_process_vid.setToolTip("Uncheck this if you only want to compress images and ignore any video files found in the dropped folders.")
         self.chk_process_vid.setChecked(True)
-        self.cmb_vid_preset = QComboBox()
-        self.cmb_vid_preset.addItems(list(VID_HINTS.keys()))
+        self.cmb_vid_preset = SegmentedControl(list(VID_HINTS.keys()), "Main AV1")
+        self.cmb_vid_preset.setToolTip("Select a baseline video preset. 'Main' offers the best overall quality-to-size ratio.")
         self.vid_hint_label = QLabel(VID_HINTS["Main AV1"])
         self.vid_hint_label.setObjectName("hintLabel")
         self.vid_hint_label.setWordWrap(True)
@@ -332,65 +571,202 @@ class MainWindow(QMainWindow):
         vid_layout.addWidget(QLabel("Preset:"))
         vid_layout.addWidget(self.cmb_vid_preset)
         vid_layout.addWidget(self.vid_hint_label)
-        vid_layout.addSpacing(10)
+        vid_layout.addSpacing(4)
         
         self.chk_compile_seq = QCheckBox("Compile Image Sequences to Transparent Video")
+        self.chk_compile_seq.setToolTip("If a folder contains sequentially numbered images (e.g., frame_001.png, frame_002.png), compile them into a single high-quality video with alpha transparency retained.")
         vid_layout.addWidget(self.chk_compile_seq)
         
-        vid_overrides_layout = QHBoxLayout()
-        vid_overrides_layout.addWidget(QLabel("CRF:"))
-        self.inp_vid_crf = QLineEdit()
-        self.inp_vid_crf.setPlaceholderText("Default")
-        vid_overrides_layout.addWidget(self.inp_vid_crf)
+        # Advanced Video Output format
+        vid_fmt_layout = QHBoxLayout()
+        self.cmb_vid_container = SegmentedControl([".mkv", ".mp4", ".webm"], ".mkv")
+        self.cmb_vid_container.setToolTip("The container format for the video. MKV is the most flexible, WebM is for browsers, MP4 has high compatibility.")
+        vid_fmt_layout.addWidget(QLabel("Format:"))
+        vid_fmt_layout.addWidget(self.cmb_vid_container)
         
-        vid_overrides_layout.addWidget(QLabel("FPS:"))
+        self.cmb_vid_codec = SegmentedControl(["AV1", "HEVC", "H.264"], "AV1")
+        self.cmb_vid_codec.setToolTip("The compression codec. AV1 is next-gen and extremely efficient. HEVC is standard high-quality. H.264 is heavily compatible legacy.")
+        vid_fmt_layout.addWidget(QLabel("Codec:"))
+        vid_fmt_layout.addWidget(self.cmb_vid_codec)
+        vid_layout.addLayout(vid_fmt_layout)
+        
+        self.chk_remove_audio = QCheckBox("Remove Audio Track")
+        self.chk_remove_audio.setToolTip("Strips all audio streams from the output video entirely.")
+        self.chk_save_metadata = QCheckBox("Save Metadata (Audio tracks, etc.)")
+        self.chk_save_metadata.setToolTip("Copies over subtitle tracks, chapters, and multiple audio tracks (if Remove Audio is disabled).")
+        self.chk_save_metadata.setChecked(True)
+        vid_layout.addWidget(self.chk_remove_audio)
+        vid_layout.addWidget(self.chk_save_metadata)
+        
+        vid_overrides_layout = QHBoxLayout()
+        lbl_crf = QLabel("Quality (CRF):")
+        lbl_crf.setToolTip("Constant Rate Factor. Lower value = Higher quality but larger file size.")
+        vid_overrides_layout.addWidget(lbl_crf)
+        self.sld_vid_crf = QSlider(Qt.Orientation.Horizontal)
+        self.sld_vid_crf.setToolTip("Slide left for higher quality, right for smaller file sizes.")
+        self.sld_vid_crf.setRange(0, 63)
+        self.sld_vid_crf.setValue(28)
+        self.lbl_vid_crf_val = QLabel("28")
+        self.sld_vid_crf.valueChanged.connect(lambda v: self.lbl_vid_crf_val.setText(str(v)))
+        
+        self.codec_defaults = {
+            "AV1": {"range": (0, 63), "default": 28},
+            "HEVC": {"range": (0, 51), "default": 24},
+            "H.264": {"range": (0, 51), "default": 20}
+        }
+        
+        self.btn_reset_vid_crf = QPushButton("⟲")
+        self.btn_reset_vid_crf.setToolTip("Reset to Default (28)")
+        self.btn_reset_vid_crf.setFixedSize(20, 20)
+        
+        def reset_crf():
+            current_codec = self.cmb_vid_codec.currentText()
+            default_val = self.codec_defaults.get(current_codec, {}).get("default", 28)
+            self.sld_vid_crf.setValue(default_val)
+            
+        self.btn_reset_vid_crf.clicked.connect(reset_crf)
+        
+        def on_vid_codec_changed(codec):
+            settings = self.codec_defaults.get(codec, {"range": (0, 63), "default": 28})
+            self.sld_vid_crf.setRange(settings["range"][0], settings["range"][1])
+            self.sld_vid_crf.setValue(settings["default"])
+            self.btn_reset_vid_crf.setToolTip(f"Reset to Default ({settings['default']})")
+            
+        self.cmb_vid_codec.currentTextChanged.connect(on_vid_codec_changed)
+        
+        vid_overrides_layout.addWidget(self.sld_vid_crf)
+        vid_overrides_layout.addWidget(self.lbl_vid_crf_val)
+        vid_overrides_layout.addWidget(self.btn_reset_vid_crf)
+        
+        vid_opts_layout = QGridLayout()
+        
+        # FPS Controls
+        lbl_fps = QLabel("FPS:")
+        lbl_fps.setToolTip("Force a specific framerate (e.g. 30, 60). Leave blank to keep original.")
+        vid_opts_layout.addWidget(lbl_fps, 0, 0)
+        
         self.inp_vid_fps = QLineEdit()
         self.inp_vid_fps.setPlaceholderText("Orig")
-        vid_overrides_layout.addWidget(self.inp_vid_fps)
+        self.inp_vid_fps.setToolTip("Enter a target framerate (e.g. 24, 30, 60). Leave blank for original.")
+        vid_opts_layout.addWidget(self.inp_vid_fps, 0, 1)
         
-        vid_overrides_layout.addWidget(QLabel("Res:"))
+        self.btn_reset_fps = QPushButton("⟲")
+        self.btn_reset_fps.setToolTip("Reset FPS to original")
+        self.btn_reset_fps.setFixedSize(20, 20)
+        self.btn_reset_fps.clicked.connect(lambda: self.inp_vid_fps.setText(""))
+        vid_opts_layout.addWidget(self.btn_reset_fps, 0, 2)
+        
+        fps_chips_container = QWidget()
+        fps_chips = QHBoxLayout(fps_chips_container)
+        fps_chips.setContentsMargins(0, 0, 0, 0)
+        fps_chips.setSpacing(4)
+        for val in ["12", "24", "25", "30", "60"]:
+            btn = QPushButton(val)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet("padding: 2px 6px; font-size: 11px;")
+            btn.clicked.connect(lambda checked, v=val: self.inp_vid_fps.setText(v))
+            fps_chips.addWidget(btn)
+        fps_chips.addStretch()
+        vid_opts_layout.addWidget(fps_chips_container, 1, 1)
+
+        # Res Controls
+        lbl_res = QLabel("Res:")
+        lbl_res.setToolTip("Force a specific resolution (e.g. 1920x1080). Leave blank to keep original.")
+        vid_opts_layout.addWidget(lbl_res, 2, 0)
+        
         self.inp_vid_res = QLineEdit()
         self.inp_vid_res.setPlaceholderText("1080p")
-        vid_overrides_layout.addWidget(self.inp_vid_res)
+        self.inp_vid_res.setToolTip("Enter a target resolution (e.g. 1280x720, 1920x1080) or shortform (1080p).")
+        vid_opts_layout.addWidget(self.inp_vid_res, 2, 1)
+        
+        self.btn_reset_res = QPushButton("⟲")
+        self.btn_reset_res.setToolTip("Reset Resolution to original")
+        self.btn_reset_res.setFixedSize(20, 20)
+        self.btn_reset_res.clicked.connect(lambda: self.inp_vid_res.setText(""))
+        vid_opts_layout.addWidget(self.btn_reset_res, 2, 2)
+        
+        res_chips_container = QWidget()
+        res_chips = QHBoxLayout(res_chips_container)
+        res_chips.setContentsMargins(0, 0, 0, 0)
+        res_chips.setSpacing(4)
+        for val in ["144p", "360p", "540p", "720p", "1080p", "1440p", "2160p"]:
+            btn = QPushButton(val)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet("padding: 2px 6px; font-size: 11px;")
+            btn.clicked.connect(lambda checked, v=val: self.inp_vid_res.setText(v))
+            res_chips.addWidget(btn)
+        res_chips.addStretch()
+        vid_opts_layout.addWidget(res_chips_container, 3, 1)
         
         vid_layout.addLayout(vid_overrides_layout)
+        vid_layout.addLayout(vid_opts_layout)
         vid_layout.addStretch() 
-        vid_group.setLayout(vid_layout)
-        media_options_layout.addWidget(vid_group)
+        left_tabs.addTab(vid_tab, "Video Processing")
 
-        layout.addLayout(media_options_layout)
+        # Replace the scroll area with our new left_tabs
+        root_layout.addWidget(left_tabs, stretch=6)
+        
+        right_layout = QVBoxLayout()
+        
+        self.batch_drop_zone = DropZone(self.on_batch_dropped, "Drop media here to begin")
+        right_layout.addWidget(self.batch_drop_zone, stretch=1)
+        
+        paths_layout = QHBoxLayout()
+        self.batch_paths_label = QLabel("0 files queued")
+        self.batch_paths_label.setObjectName("subtitleLabel")
+        clear_btn = QPushButton("Clear Queue")
+        clear_btn.setObjectName("browseBtn")
+        clear_btn.clicked.connect(self.clear_batch_selection)
+        paths_layout.addWidget(self.batch_paths_label)
+        paths_layout.addStretch()
+        paths_layout.addWidget(clear_btn)
+        right_layout.addLayout(paths_layout)
 
-        controls_layout = QHBoxLayout()
-        self.start_btn = QPushButton("START BATCH COMPRESSION")
+        self.start_btn = QPushButton("Compress Files")
         self.start_btn.setObjectName("startBtn")
         self.start_btn.setEnabled(False)  # Disabled until files are dropped
         self.start_btn.clicked.connect(self.start_batch_processing)
+        self.start_btn.setMinimumHeight(60) # Massive start button
         
-        controls_layout.addWidget(self.start_btn)
-        layout.addLayout(controls_layout)
+        right_layout.addWidget(self.start_btn)
+        
+        root_layout.addLayout(right_layout, stretch=4)
 
     def _setup_quick_tab(self):
         layout = QVBoxLayout(self.tab_quick)
         
-        info_label = QLabel("Quick Converter automatically detects file types and offers individual context actions.")
+        info_label = QLabel("Drop individual files below. We'll automatically suggest the best action.")
         info_label.setObjectName("subtitleLabel")
+        info_label.setToolTip("Quick Converter handles files individually. It allows you to set distinct actions for each file.")
         layout.addWidget(info_label)
 
         # Actions Row
         top_bar = QHBoxLayout()
         add_files_btn = QPushButton("Add Files")
+        add_files_btn.setToolTip("Manually browse and add specific files to the queue.")
         add_files_btn.clicked.connect(self.add_quick_files)
+        
         add_dirs_btn = QPushButton("Add Folders")
+        add_dirs_btn.setToolTip("Add an entire folder. It will list all compatible files inside.")
         add_dirs_btn.clicked.connect(self.add_quick_dirs)
+        
         clear_btn = QPushButton("Clear Table")
+        clear_btn.setToolTip("Remove all files from the current queue.")
         clear_btn.clicked.connect(self.clear_quick_table)
         
         self.chk_quick_recursive = QCheckBox("Recursive scan")
+        self.chk_quick_recursive.setToolTip("If enabled, adding a folder will also search all folders inside it.")
         self.chk_quick_recursive.setChecked(True)
+        
+        self.btn_advanced_edit = QPushButton("Advanced Edit")
+        self.btn_advanced_edit.setToolTip("Open the Photoshop/Premiere Engine for the selected file")
+        self.btn_advanced_edit.setEnabled(False)
+        self.btn_advanced_edit.clicked.connect(self.open_advanced_preview)
 
         top_bar.addWidget(add_files_btn)
         top_bar.addWidget(add_dirs_btn)
         top_bar.addWidget(clear_btn)
+        top_bar.addWidget(self.btn_advanced_edit)
         top_bar.addWidget(self.chk_quick_recursive)
         top_bar.addStretch()
         
@@ -406,19 +782,39 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(apply_vid_btn)
         layout.addLayout(top_bar)
 
-        # Table
+        # Table and Preview Layout
+        from PyQt6.QtWidgets import QSplitter
+        main_content_layout = QHBoxLayout()
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Preview Box (Now on the left)
+        self.lbl_preview = QLabel("No Selection")
+        self.lbl_preview.setObjectName("previewLabel")
+        self.lbl_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_preview.setMinimumSize(100, 100)
+        splitter.addWidget(self.lbl_preview)
+        
         self.q_table = QTableWidget(0, 5)
         self.q_table.setHorizontalHeaderLabels(["Filename", "Type", "Action", "Options", "Status"])
         self.q_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.q_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.q_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.q_table.setAcceptDrops(True)
-        # Hack to allow drops directly on table by overriding its drop events dynamically or just relying on parent
-        layout.addWidget(self.q_table)
+        self.q_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.q_table.setToolTip("Drag and drop files here. Double click a row to open the Advanced Editor.")
+        self.q_table.itemSelectionChanged.connect(self.update_quick_preview)
+        self.q_table.cellDoubleClicked.connect(self.open_advanced_preview)
+        splitter.addWidget(self.q_table)
+        
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 8)
+        
+        main_content_layout.addWidget(splitter)
+        layout.addLayout(main_content_layout)
 
         # Controls
         controls_layout = QHBoxLayout()
-        self.quick_start_btn = QPushButton("START QUICK CONVERSION")
+        self.quick_start_btn = QPushButton("Convert Files")
         self.quick_start_btn.setObjectName("startBtn")
         self.quick_start_btn.setEnabled(False)
         self.quick_start_btn.clicked.connect(self.start_quick_processing)
@@ -430,7 +826,74 @@ class MainWindow(QMainWindow):
         self.q_table.dragMoveEvent = self.q_table_dragMoveEvent
         self.q_table.dropEvent = self.q_table_dropEvent
 
+    def update_quick_preview(self):
+        try:
+            selected_items = self.q_table.selectedItems()
+            self.btn_advanced_edit.setEnabled(bool(selected_items))
+            
+            if not selected_items:
+                self.lbl_preview.clear()
+                self.lbl_preview.setText("No Selection")
+                return
+                
+            row = selected_items[0].row()
+            filename_item = self.q_table.item(row, 0)
+            if not filename_item:
+                self.lbl_preview.setText("Error: No Filename")
+                return
+                
+            p = filename_item.data(Qt.ItemDataRole.UserRole)
+            if not p:
+                self.lbl_preview.setText(f"File Path Not Found\n{filename}")
+                return
+                
+            ftype = self.q_table.item(row, 1).text()
+            
+            if ftype == "Image":
+                from PyQt6.QtGui import QPixmap
+                from PyQt6.QtCore import Qt
+                pixmap = QPixmap(p)
+                if not pixmap.isNull():
+                    w = max(150, self.lbl_preview.width() - 10)
+                    h = max(150, self.lbl_preview.height() - 10)
+                    self.lbl_preview.setPixmap(pixmap.scaled(w, h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+                else:
+                    self.lbl_preview.setText("Image Preview\nUnavailable")
+            elif ftype == "Video":
+                self.lbl_preview.setText("🎬\nVideo File")
+            else:
+                self.lbl_preview.setText("Unsupported\nFile")
+        except Exception as e:
+            self.lbl_preview.setText(f"CRASH:\n{str(e)}")
+
+    def open_advanced_preview(self):
+        selected_items = self.q_table.selectedItems()
+        if not selected_items: return
+        
+        row = selected_items[0].row()
+        filename_item = self.q_table.item(row, 0)
+        if not filename_item: return
+        
+        from pathlib import Path
+        p = filename_item.data(Qt.ItemDataRole.UserRole)
+        if not p: return
+        
+        file_data = {'path': p, 'adjustments': filename_item.data(Qt.ItemDataRole.UserRole + 1) or {}}
+        
+        try:
+            from gui.advanced_preview import AdvancedPreviewDialog
+            dialog = AdvancedPreviewDialog(file_data, self)
+            if dialog.exec():
+                # Apply adjustments
+                file_data['adjustments'] = dialog.get_adjustments()
+                self.log(f"Applied advanced adjustments to {Path(file_data['path']).name}")
+        except Exception as e:
+            self.log(f"[ERROR] Failed to open Advanced Preview: {e}")
+
     def _setup_appearance_tab(self):
+        from PyQt6.QtWidgets import QFontComboBox, QSpinBox, QGridLayout
+        from PyQt6.QtGui import QFont
+        
         layout = QVBoxLayout(self.tab_appearance)
         
         info_label = QLabel("Customize the look and feel of the application.")
@@ -441,6 +904,7 @@ class MainWindow(QMainWindow):
         theme_layout = QHBoxLayout()
         theme_layout.addWidget(QLabel("Preset Theme:"))
         self.cmb_theme = QComboBox()
+        self.cmb_theme.setToolTip("Select a curated color palette for the application interface.")
         self.cmb_theme.addItems(list(self.theme_manager.themes.keys()))
         self.cmb_theme.setCurrentText(self.theme_manager.get_active_theme_name())
         self.cmb_theme.currentTextChanged.connect(self.on_theme_changed)
@@ -448,27 +912,63 @@ class MainWindow(QMainWindow):
         theme_layout.addStretch()
         layout.addLayout(theme_layout)
 
+        # Typography
+        type_group = QGroupBox("Typography")
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("Font Family:"))
+        self.cmb_font = QFontComboBox()
+        
+        current_font = self.theme_manager.get_font_family()
+        if current_font:
+            self.cmb_font.setCurrentFont(QFont(current_font))
+            
+        type_layout.addWidget(self.cmb_font)
+        
+        type_layout.addSpacing(6)
+        type_layout.addWidget(QLabel("Font Size:"))
+        self.spn_font_size = QSpinBox()
+        self.spn_font_size.setRange(8, 36)
+        self.spn_font_size.setValue(self.theme_manager.get_font_size())
+        type_layout.addWidget(self.spn_font_size)
+        type_layout.addStretch()
+        type_group.setLayout(type_layout)
+        layout.addWidget(type_group)
+
         # Custom colors group
         self.grp_custom_colors = QGroupBox("Custom Palette Colors")
-        custom_layout = QHBoxLayout()
+        custom_layout = QGridLayout()
         
-        self.btn_primary_color = QPushButton()
-        self.btn_primary_color.setObjectName("colorSwatchBtn")
-        self.btn_primary_color.setFixedSize(30, 30)
-        self.btn_primary_color.clicked.connect(lambda: self.pick_custom_color('primary'))
+        self.color_buttons = {}
         
-        self.btn_secondary_color = QPushButton()
-        self.btn_secondary_color.setObjectName("colorSwatchBtn")
-        self.btn_secondary_color.setFixedSize(30, 30)
-        self.btn_secondary_color.clicked.connect(lambda: self.pick_custom_color('secondary'))
+        colors_to_expose = [
+            ("bg_base", "Base Background"),
+            ("bg_surface", "Surface Background"),
+            ("text_main", "Main Text"),
+            ("text_muted", "Muted Text"),
+            ("primary", "Primary Accent"),
+            ("secondary", "Secondary Accent"),
+            ("danger", "Danger Accent")
+        ]
+        
+        row, col = 0, 0
+        for key, name in colors_to_expose:
+            btn = QPushButton()
+            btn.setObjectName("colorSwatchBtn")
+            btn.setFixedSize(24, 24)
+            btn.clicked.connect(lambda checked, k=key: self.pick_custom_color(k))
+            self.color_buttons[key] = btn
+            
+            sub_layout = QHBoxLayout()
+            sub_layout.addWidget(QLabel(f"{name}:"))
+            sub_layout.addWidget(btn)
+            sub_layout.addStretch()
+            
+            custom_layout.addLayout(sub_layout, row, col)
+            col += 1
+            if col > 1:
+                col = 0
+                row += 1
 
-        custom_layout.addWidget(QLabel("Primary Accent:"))
-        custom_layout.addWidget(self.btn_primary_color)
-        custom_layout.addSpacing(20)
-        custom_layout.addWidget(QLabel("Secondary Accent:"))
-        custom_layout.addWidget(self.btn_secondary_color)
-        custom_layout.addStretch()
-        
         self.grp_custom_colors.setLayout(custom_layout)
         layout.addWidget(self.grp_custom_colors)
         
@@ -477,8 +977,9 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
 
-        apply_btn = QPushButton("APPLY THEME")
+        apply_btn = QPushButton("APPLY SETTINGS")
         apply_btn.setObjectName("startBtn")
+        apply_btn.setToolTip("Save the current appearance settings and reload the user interface.")
         apply_btn.clicked.connect(self.apply_theme)
         layout.addWidget(apply_btn)
 
@@ -495,17 +996,22 @@ class MainWindow(QMainWindow):
             self.update_custom_swatches()
 
     def update_custom_swatches(self):
-        pri = self.theme_manager.themes["Custom"]["primary"]
-        sec = self.theme_manager.themes["Custom"]["secondary"]
-        self.btn_primary_color.setStyleSheet(f"background-color: {pri};")
-        self.btn_secondary_color.setStyleSheet(f"background-color: {sec};")
+        for key, btn in self.color_buttons.items():
+            hex_color = self.theme_manager.themes["Custom"].get(key, "#000000")
+            btn.setStyleSheet(f"background-color: {hex_color};")
 
     def apply_theme(self):
         theme_name = self.cmb_theme.currentText()
+        font_family = self.cmb_font.currentFont().family()
+        font_size = self.spn_font_size.value()
+        
         self.theme_manager.set_active_theme(theme_name)
+        self.theme_manager.set_font_family(font_family)
+        self.theme_manager.set_font_size(font_size)
+        
         palette = self.theme_manager.get_palette()
-        self.setStyleSheet(generate_stylesheet(palette))
-        self.log(f"[INFO] Theme changed to {theme_name}")
+        self.setStyleSheet(generate_stylesheet(palette, font_family, font_size))
+        self.log(f"[INFO] Appearance settings applied")
 
     def log(self, msg: str):
         import datetime
@@ -523,6 +1029,9 @@ class MainWindow(QMainWindow):
     def on_batch_dropped(self, paths):
         self.batch_paths.update(paths)
         self.update_batch_label()
+        
+        if self.chk_auto_process.isChecked() and (self.worker is None or not self.worker.isRunning()):
+            self.start_batch_processing()
 
     def clear_batch_selection(self):
         self.batch_paths.clear()
@@ -531,10 +1040,10 @@ class MainWindow(QMainWindow):
     def update_batch_label(self):
         count = len(self.batch_paths)
         if count > 0:
-            self.batch_paths_label.setText(f"Selected: {count} items ready for processing")
+            self.batch_paths_label.setText(f"{count} files queued for processing")
             self.start_btn.setEnabled(True)
         else:
-            self.batch_paths_label.setText("No files selected. Drag & drop files to begin.")
+            self.batch_paths_label.setText("0 files queued")
             self.start_btn.setEnabled(False)
 
     def browse_target_folder(self):
@@ -554,6 +1063,7 @@ class MainWindow(QMainWindow):
         options = {
             'recursive': self.chk_recursive.isChecked(),
             'overwrite': self.chk_overwrite.isChecked(),
+            'skip_existing': getattr(self, 'chk_skip_existing', None) and self.chk_skip_existing.isChecked(),
             'use_target': self.chk_target.isChecked(),
             'target_dir': self.inp_target.text(),
             'use_suffix': self.chk_suffix.isChecked(),
@@ -562,26 +1072,42 @@ class MainWindow(QMainWindow):
             'process_images': self.chk_process_img.isChecked(),
             'smart_auto_image': self.chk_smart_img.isChecked(),
             'image_preset': self.cmb_img_preset.currentText(),
+            'img_quality': self.sld_img_quality.value(),
             'force_image_format': getattr(self, 'chk_force_img_format', None) and self.chk_force_img_format.isChecked(),
             'image_format': self.cmb_img_format.currentText(),
             
             'process_videos': self.chk_process_vid.isChecked(),
             'smart_auto_video': self.chk_smart_vid.isChecked(),
             'compile_sequences': self.chk_compile_seq.isChecked(),
+            'video_container': self.cmb_vid_container.currentText(),
+            'video_codec': self.cmb_vid_codec.currentText(),
+            'remove_audio': self.chk_remove_audio.isChecked(),
+            'save_metadata': self.chk_save_metadata.isChecked(),
             'video_preset': self.cmb_vid_preset.currentText(),
-            'video_crf': self.inp_vid_crf.text().strip(),
+            'video_crf': str(self.sld_vid_crf.value()),
             'video_fps': self.inp_vid_fps.text().strip(),
-            'video_res': self.inp_vid_res.text().strip()
+            'video_res': self.inp_vid_res.text().strip(),
+            
+            'use_skip_pattern': getattr(self, 'chk_skip_pattern', None) and self.chk_skip_pattern.isChecked(),
+            'skip_pattern_mode': self.cmb_skip_mode.currentText() if hasattr(self, 'cmb_skip_mode') else "Contains",
+            'skip_pattern_case': getattr(self, 'chk_skip_case', None) and self.chk_skip_case.isChecked(),
+            'skip_patterns': self.inp_skip_pattern.text() if hasattr(self, 'inp_skip_pattern') else ""
         }
 
         self.log("\n--- Starting Batch Job ---")
-        self.tabs.setEnabled(False)
         self.cancel_btn.setEnabled(True)
+        self.cancel_btn.setText("Cancel Operation")
+        self.start_btn.setEnabled(False)
+        self.start_btn.setText("Processing...")
         self.progress_bar.setValue(0)
 
-        self.worker = BatchManager(list(self.batch_paths), options)
+        # Snapshot the current queue
+        self.current_batch_snapshot = list(self.batch_paths)
+
+        self.worker = BatchManager(self.current_batch_snapshot, options)
         self.worker.progress_updated.connect(self.update_progress)
         self.worker.log_message.connect(self.log)
+        self.worker.stats_updated.connect(self.update_rewards)
         self.worker.processing_finished.connect(self.on_processing_finished)
         self.worker.start()
 
@@ -597,14 +1123,17 @@ class MainWindow(QMainWindow):
         self.gather_quick_files(paths)
 
     def add_quick_files(self):
-        dialog = QFileDialog(self)
+        last_dir = self.settings.value("last_dir", "")
+        dialog = QFileDialog(self, "Select Files", last_dir)
         dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
         if dialog.exec():
+            self.settings.setValue("last_dir", dialog.directory().absolutePath())
             paths = dialog.selectedFiles()
             self.gather_quick_files(paths)
 
     def add_quick_dirs(self):
-        dialog = QFileDialog(self)
+        last_dir = self.settings.value("last_dir", "")
+        dialog = QFileDialog(self, "Select Directories", last_dir)
         dialog.setFileMode(QFileDialog.FileMode.Directory)
         dialog.setOption(QFileDialog.Option.DontUseNativeDialog, True)
         dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
@@ -613,28 +1142,39 @@ class MainWindow(QMainWindow):
                 view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
 
         if dialog.exec():
+            self.settings.setValue("last_dir", dialog.directory().absolutePath())
             paths = dialog.selectedFiles()
             self.gather_quick_files(paths)
 
     def gather_quick_files(self, paths):
         recursive = self.chk_quick_recursive.isChecked()
+        added_any = False
         for p in paths:
             path_obj = Path(p)
             if path_obj.is_file():
                 self.add_file_to_table(p)
+                added_any = True
             elif path_obj.is_dir():
                 if recursive:
                     for root, _, files in os.walk(p):
                         for file in files:
                             self.add_file_to_table(os.path.join(root, file))
+                            added_any = True
                 else:
                     for item in path_obj.iterdir():
                         if item.is_file():
                             self.add_file_to_table(str(item))
+                            added_any = True
+                            
+        if added_any and not self.q_table.selectedItems():
+            self.q_table.selectRow(0)
+
+        if self.chk_auto_process.isChecked() and (self.worker is None or not self.worker.isRunning()):
+            if self.q_table.rowCount() > 0:
+                self.start_quick_processing()
 
     def clear_quick_table(self):
         self.q_table.setRowCount(0)
-        self.quick_files.clear()
         self.quick_start_btn.setEnabled(False)
 
     def add_file_to_table(self, path):
@@ -647,15 +1187,17 @@ class MainWindow(QMainWindow):
         self.q_table.insertRow(row)
 
         name_item = QTableWidgetItem(Path(path).name)
-        name_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        name_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+        name_item.setData(Qt.ItemDataRole.UserRole, str(path))
         self.q_table.setItem(row, 0, name_item)
 
         type_item = QTableWidgetItem(ftype)
-        type_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        type_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
         self.q_table.setItem(row, 1, type_item)
 
         cmb_action = QComboBox()
         cmb_option = QComboBox()
+        cmb_option.setEditable(True)  # Allow custom resize percentage
 
         if ftype == "Image":
             cmb_action.addItems(IMAGE_ACTIONS)
@@ -672,77 +1214,100 @@ class MainWindow(QMainWindow):
         self.q_table.setCellWidget(row, 3, cmb_option)
 
         status_item = QTableWidgetItem("Pending")
-        status_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        status_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
         self.q_table.setItem(row, 4, status_item)
-        self.quick_files.append({
-            'row': row,
-            'path': path,
-            'type': ftype,
-            'action_cmb': cmb_action,
-            'option_cmb': cmb_option,
-            'status_item': status_item
-        })
         self.quick_start_btn.setEnabled(True)
 
     def sync_image_actions(self):
-        first_img = next((f for f in self.quick_files if f['type'] == 'Image'), None)
-        if first_img:
-            target_act = first_img['action_cmb'].currentIndex()
-            target_opt = first_img['option_cmb'].currentIndex()
-            for f in self.quick_files:
-                if f['type'] == 'Image':
-                    f['action_cmb'].setCurrentIndex(target_act)
-                    f['option_cmb'].setCurrentIndex(target_opt)
+        target_act = None
+        target_opt = None
+        for row in range(self.q_table.rowCount()):
+            if self.q_table.item(row, 1).text() == 'Image':
+                if target_act is None:
+                    target_act = self.q_table.cellWidget(row, 2).currentIndex()
+                    target_opt = self.q_table.cellWidget(row, 3).currentIndex()
+                else:
+                    self.q_table.cellWidget(row, 2).setCurrentIndex(target_act)
+                    self.q_table.cellWidget(row, 3).setCurrentIndex(target_opt)
 
     def sync_video_actions(self):
-        first_vid = next((f for f in self.quick_files if f['type'] == 'Video'), None)
-        if first_vid:
-            target_act = first_vid['action_cmb'].currentIndex()
-            target_opt = first_vid['option_cmb'].currentIndex()
-            for f in self.quick_files:
-                if f['type'] == 'Video':
-                    f['action_cmb'].setCurrentIndex(target_act)
-                    f['option_cmb'].setCurrentIndex(target_opt)
+        target_act = None
+        target_opt = None
+        for row in range(self.q_table.rowCount()):
+            if self.q_table.item(row, 1).text() == 'Video':
+                if target_act is None:
+                    target_act = self.q_table.cellWidget(row, 2).currentIndex()
+                    target_opt = self.q_table.cellWidget(row, 3).currentIndex()
+                else:
+                    self.q_table.cellWidget(row, 2).setCurrentIndex(target_act)
+                    self.q_table.cellWidget(row, 3).setCurrentIndex(target_opt)
 
     def start_quick_processing(self):
-        if not self.quick_files:
+        if self.q_table.rowCount() == 0:
             self.log("[ERROR] No files in table.")
             return
 
         self.log("\n--- Starting Quick Conversion ---")
-        self.tabs.setEnabled(False)
         self.cancel_btn.setEnabled(True)
+        self.cancel_btn.setText("Cancel Operation")
+        self.quick_start_btn.setEnabled(False)
+        self.quick_start_btn.setText("Processing...")
         self.progress_bar.setValue(0)
 
         # Prepare tasks (extracting data from UI components safely)
         tasks = []
-        for f in self.quick_files:
+        for row in range(self.q_table.rowCount()):
+            path = self.q_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            ftype = self.q_table.item(row, 1).text()
+            act_cmb = self.q_table.cellWidget(row, 2)
+            opt_cmb = self.q_table.cellWidget(row, 3)
             tasks.append({
-                'row': f['row'],
-                'path': f['path'],
-                'type': f['type'],
-                'action': f['action_cmb'].currentText(),
-                'option': f['option_cmb'].currentText()
+                'row': row,
+                'path': path,
+                'type': ftype,
+                'action': act_cmb.currentText(),
+                'option': opt_cmb.currentText()
             })
 
         self.worker = QuickWorker(tasks)
         self.worker.progress_updated.connect(self.update_progress)
         self.worker.log_message.connect(self.log)
+        self.worker.stats_updated.connect(self.update_rewards)
         self.worker.item_status_updated.connect(self.update_quick_item_status)
         self.worker.processing_finished.connect(self.on_quick_processing_finished)
         self.worker.start()
 
     def update_quick_item_status(self, row: int, status: str):
         # Update the specific row's status item
-        for f in self.quick_files:
-            if f['row'] == row:
-                f['status_item'].setText(status)
-                break
+        status_item = self.q_table.item(row, 4)
+        if status_item:
+            status_item.setText(status)
 
     def on_quick_processing_finished(self, success_count: int, total: int):
         self.log(f"--- Quick Conversion Finished ({success_count}/{total} OK) ---\n")
-        self.tabs.setEnabled(True)
         self.cancel_btn.setEnabled(False)
+        self.cancel_btn.setText("Cancel Operation")
+        self.quick_start_btn.setText("Convert Files")
+        self.quick_start_btn.setEnabled(True)
+        
+        if getattr(self.worker, '_is_cancelled', False) == False:
+            # Remove completed rows
+            for row in range(self.q_table.rowCount() - 1, -1, -1):
+                status_item = self.q_table.item(row, 4)
+                if status_item and status_item.text() in ["OK", "FAIL"]:
+                    self.q_table.removeRow(row)
+
+            # Auto-restart if there are pending files
+            has_pending = False
+            for row in range(self.q_table.rowCount()):
+                status_item = self.q_table.item(row, 4)
+                if status_item and status_item.text() == "Ready":
+                    has_pending = True
+                    break
+                    
+            if self.chk_auto_process.isChecked() and has_pending:
+                self.log("[INFO] Auto-queue triggered for remaining quick files...")
+                self.start_quick_processing()
 
     def update_progress(self, current, total):
         self.progress_bar.setMaximum(total)
@@ -755,6 +1320,8 @@ class MainWindow(QMainWindow):
         # Batch tab settings
         self.settings.setValue("chk_recursive", self.chk_recursive.isChecked())
         self.settings.setValue("chk_overwrite", self.chk_overwrite.isChecked())
+        self.settings.setValue("chk_skip_existing", self.chk_skip_existing.isChecked())
+        self.settings.setValue("chk_auto_process", self.chk_auto_process.isChecked())
         self.settings.setValue("chk_target", self.chk_target.isChecked())
         self.settings.setValue("inp_target", self.inp_target.text())
         self.settings.setValue("chk_suffix", self.chk_suffix.isChecked())
@@ -762,14 +1329,26 @@ class MainWindow(QMainWindow):
         
         self.settings.setValue("chk_process_img", self.chk_process_img.isChecked())
         self.settings.setValue("cmb_img_preset", self.cmb_img_preset.currentText())
+        self.settings.setValue("sld_img_quality", self.sld_img_quality.value())
         self.settings.setValue("cmb_img_format", self.cmb_img_format.currentText())
         
         self.settings.setValue("chk_process_vid", self.chk_process_vid.isChecked())
         self.settings.setValue("chk_compile_seq", self.chk_compile_seq.isChecked())
+        self.settings.setValue("cmb_vid_container", self.cmb_vid_container.currentText())
+        self.settings.setValue("cmb_vid_codec", self.cmb_vid_codec.currentText())
+        self.settings.setValue("chk_remove_audio", self.chk_remove_audio.isChecked())
+        self.settings.setValue("chk_save_metadata", self.chk_save_metadata.isChecked())
         self.settings.setValue("cmb_vid_preset", self.cmb_vid_preset.currentText())
-        self.settings.setValue("inp_vid_crf", self.inp_vid_crf.text())
+        self.settings.setValue("sld_vid_crf", self.sld_vid_crf.value())
         self.settings.setValue("inp_vid_fps", self.inp_vid_fps.text())
         self.settings.setValue("inp_vid_res", self.inp_vid_res.text())
+
+        # Skip Pattern Settings
+        if hasattr(self, 'chk_skip_pattern'):
+            self.settings.setValue("chk_skip_pattern", self.chk_skip_pattern.isChecked())
+            self.settings.setValue("cmb_skip_mode", self.cmb_skip_mode.currentText())
+            self.settings.setValue("chk_skip_case", self.chk_skip_case.isChecked())
+            self.settings.setValue("inp_skip_pattern", self.inp_skip_pattern.text())
 
     def load_settings(self):
         if self.settings.value("geometry"):
@@ -785,6 +1364,12 @@ class MainWindow(QMainWindow):
         # Batch tab settings
         self.chk_recursive.setChecked(str_to_bool(self.settings.value("chk_recursive"), True))
         self.chk_overwrite.setChecked(str_to_bool(self.settings.value("chk_overwrite"), False))
+        
+        if self.settings.value("chk_skip_existing") is not None:
+            self.chk_skip_existing.setChecked(str_to_bool(self.settings.value("chk_skip_existing"), True))
+        if self.settings.value("chk_auto_process") is not None:
+            self.chk_auto_process.setChecked(str_to_bool(self.settings.value("chk_auto_process"), False))
+            
         self.chk_target.setChecked(str_to_bool(self.settings.value("chk_target"), False))
         if self.settings.value("inp_target"):
             self.inp_target.setText(self.settings.value("inp_target"))
@@ -796,31 +1381,108 @@ class MainWindow(QMainWindow):
         self.chk_process_img.setChecked(str_to_bool(self.settings.value("chk_process_img"), True))
         if self.settings.value("cmb_img_preset"):
             self.cmb_img_preset.setCurrentText(self.settings.value("cmb_img_preset"))
+        if self.settings.value("sld_img_quality") is not None:
+            self.sld_img_quality.setValue(int(self.settings.value("sld_img_quality")))
         if self.settings.value("cmb_img_format"):
             self.cmb_img_format.setCurrentText(self.settings.value("cmb_img_format"))
             
         self.chk_process_vid.setChecked(str_to_bool(self.settings.value("chk_process_vid"), True))
         self.chk_compile_seq.setChecked(str_to_bool(self.settings.value("chk_compile_seq"), False))
+        if self.settings.value("cmb_vid_container"):
+            self.cmb_vid_container.setCurrentText(self.settings.value("cmb_vid_container"))
+        if self.settings.value("cmb_vid_codec"):
+            self.cmb_vid_codec.setCurrentText(self.settings.value("cmb_vid_codec"))
+        if self.settings.value("chk_remove_audio") is not None:
+            self.chk_remove_audio.setChecked(str_to_bool(self.settings.value("chk_remove_audio"), False))
+        if self.settings.value("chk_save_metadata") is not None:
+            self.chk_save_metadata.setChecked(str_to_bool(self.settings.value("chk_save_metadata"), True))
         if self.settings.value("cmb_vid_preset"):
             self.cmb_vid_preset.setCurrentText(self.settings.value("cmb_vid_preset"))
-        if self.settings.value("inp_vid_crf"):
-            self.inp_vid_crf.setText(self.settings.value("inp_vid_crf"))
+        if self.settings.value("sld_vid_crf") is not None:
+            self.sld_vid_crf.setValue(int(self.settings.value("sld_vid_crf")))
         if self.settings.value("inp_vid_fps"):
             self.inp_vid_fps.setText(self.settings.value("inp_vid_fps"))
         if self.settings.value("inp_vid_res"):
             self.inp_vid_res.setText(self.settings.value("inp_vid_res"))
 
+        # Skip Pattern Settings
+        if hasattr(self, 'chk_skip_pattern'):
+            if self.settings.value("chk_skip_pattern") is not None:
+                self.chk_skip_pattern.setChecked(str_to_bool(self.settings.value("chk_skip_pattern"), False))
+            if self.settings.value("cmb_skip_mode"):
+                self.cmb_skip_mode.setCurrentText(self.settings.value("cmb_skip_mode"))
+            if self.settings.value("chk_skip_case") is not None:
+                self.chk_skip_case.setChecked(str_to_bool(self.settings.value("chk_skip_case"), False))
+            if self.settings.value("inp_skip_pattern"):
+                self.inp_skip_pattern.setText(self.settings.value("inp_skip_pattern"))
+
     def closeEvent(self, event):
-        self.save_settings()
-        event.accept()
+        is_working = (self.worker and self.worker.isRunning())
+        if is_working:
+            event.ignore()
+            self.hide()
+            self.tray_icon.showMessage(
+                "Compressor Running",
+                "Minimized to system tray because files are still processing.",
+                QSystemTrayIcon.MessageIcon.Information,
+                2000
+            )
+        else:
+            self.save_settings()
+            event.accept()
+            from PyQt6.QtWidgets import QApplication
+            QApplication.instance().quit()
 
     def cancel_processing(self):
         if self.worker and self.worker.isRunning():
             self.worker.cancel()
             self.log("[INFO] Cancellation requested...")
+            self.cancel_btn.setText("Cancelling...")
             self.cancel_btn.setEnabled(False)
 
     def on_processing_finished(self):
-        self.tabs.setEnabled(True)
         self.cancel_btn.setEnabled(False)
+        self.cancel_btn.setText("Cancel Operation")
+        self.start_btn.setText("Compress Files")
         self.log("--- Batch Job Finished ---\n")
+        
+        # Remove processed files from queue if not cancelled
+        if getattr(self.worker, '_is_cancelled', False) == False:
+            for p in getattr(self, 'current_batch_snapshot', []):
+                self.batch_paths.discard(p)
+            self.update_batch_label()
+            
+            # Auto-restart if new files were added to the queue
+            if self.chk_auto_process.isChecked() and len(self.batch_paths) > 0:
+                self.log("[INFO] Auto-queue triggered for remaining files...")
+                self.start_batch_processing()
+        else:
+            self.start_btn.setEnabled(len(self.batch_paths) > 0)
+
+        self.worker = None
+
+    def update_rewards(self, orig_bytes, comp_bytes):
+        self.total_original_bytes += orig_bytes
+        self.total_compressed_bytes += comp_bytes
+        
+        def format_size(size_in_bytes):
+            if size_in_bytes < 1024 * 1024:
+                return f"{size_in_bytes / 1024:.1f} KB"
+            elif size_in_bytes < 1024 * 1024 * 1024:
+                return f"{size_in_bytes / (1024 * 1024):.1f} MB"
+            else:
+                return f"{size_in_bytes / (1024 * 1024 * 1024):.2f} GB"
+                
+        self.lbl_orig_size.setText(f"Original: {format_size(self.total_original_bytes)}")
+        self.lbl_new_size.setText(f"New: {format_size(self.total_compressed_bytes)}")
+        
+        saved_bytes = self.total_original_bytes - self.total_compressed_bytes
+        if self.total_original_bytes > 0:
+            saved_pct = (saved_bytes / self.total_original_bytes) * 100
+        else:
+            saved_pct = 0
+            
+        if saved_bytes > 0:
+            self.lbl_saved_size.setText(f"🏆 Total Saved: {format_size(saved_bytes)} ({saved_pct:.1f}%)")
+        else:
+            self.lbl_saved_size.setText(f"🏆 Total Saved: 0 MB (0%)")
