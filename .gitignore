@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Build output
+build/
+dist/
+*.egg-info/
+
+# Runtime logs and local session state
+*.log
+session_log.txt
+session_log.txt.*
+output.log
+error.log
+
+# IDE / OS noise
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
