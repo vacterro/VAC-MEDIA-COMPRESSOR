@@ -1,115 +1,111 @@
 <div align="center">
 
-**### THIS CONTENT IS AI GENERATED ###**
-<img width="1434" height="857" alt="2026-06-15_040306" src="https://github.com/user-attachments/assets/70912a79-2c2f-46ac-a970-80886d809ea9" />
-<img width="1434" height="857" alt="2026-06-15_041203" src="https://github.com/user-attachments/assets/c1df2745-f546-4c8c-b943-8ba842a31098" />
+# VAC Media Compressor
 
-# 🚀 Smart VAC Media Compressor
+**Batch image/video compression and quick media conversion from a PyQt6 desktop interface.**
 
-**A high-performance, intelligent batch media compression suite built in Python and PyQt6.**
+![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)
+![PyQt6](https://img.shields.io/badge/UI-PyQt6-41CD52?style=flat-square)
+![FFmpeg](https://img.shields.io/badge/media-FFmpeg-007808?style=flat-square&logo=ffmpeg&logoColor=white)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
-[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org)
-[![PyQt6](https://img.shields.io/badge/PyQt6-UI-green.svg)](https://riverbankcomputing.com/software/pyqt/)
-[![FFmpeg](https://img.shields.io/badge/FFmpeg-Powered-red.svg)](https://ffmpeg.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<img width="1080" alt="VAC Media Compressor main interface" src="https://github.com/user-attachments/assets/70912a79-2c2f-46ac-a970-80886d809ea9" />
 
 </div>
 
----
+## Overview
 
-## ⚡ Overview
+VAC Media Compressor wraps common image, video, and audio conversion jobs in a drag-and-drop GUI. It has two main workflows:
 
-Smart VAC Media Compressor is a professional-grade desktop application designed to handle massive directories of raw media. Whether you're batch-converting gigabytes of uncompressed 3D renders into highly optimized WebP images, or encoding raw gameplay footage into the ultra-efficient AV1 format, this tool abstracts the complex CLI arguments into a beautiful, drag-and-drop interface.
+| Workflow | Best for |
+|---|---|
+| **Batch Compressor** | folders or mixed groups of files that should be processed together |
+| **Quick Converter** | one-off jobs where the app can suggest an action from the file type |
 
-## ✨ Key Features
+The Python UI delegates heavy media work to established command-line tools instead of reimplementing codecs.
 
-- **🧠 Smart Heuristics Engine:** Drop a mixed folder of `.png`, `.jpg`, and `.bmp` files. The Smart Engine automatically evaluates each file extension and applies the mathematically ideal balance of lossy/lossless conversion (e.g., raw `.bmp` maps to lossless PNG, heavy `.jpg` maps to Quality 92 WebP).
-- **🔥 Saturated Concurrency:** Built on a decoupled `ThreadPoolExecutor`, the batch manager automatically scales up to your `os.cpu_count()`. Got a 16-core CPU? It processes 16 images simultaneously.
-- **⚡ Quick Converter:** A dedicated scratch-pad tab for rapid operations. Drag a `.wav` file in, and it instantly suggests "Extract Audio (MP3)". Zero configuration needed.
-- **🎬 Next-Gen Video Encoding:** Native support for SVT-AV1. Shrink massive MKV/MP4 files using preset CRF values optimized for either visual fidelity or aggressive compression.
-- **🗜️ Zero-Encode Pass-Throughs:** Features like "Remove Audio" or "Extract Audio" use `-c copy` under the hood, bypassing the encoding pipeline entirely for instantaneous, lossless extraction.
-- **🎨 Modern UI & Theming:** A polished, fully customizable PyQt6 interface with dark mode, system tray integration, window state persistence, and native tooltips.
+## Quick start
 
----
-
-## 🛠️ Prerequisites & Installation
-
-The application relies on several industry-standard command-line utilities. Ensure these are installed and added to your system `PATH`.
-
-### Dependencies
-1. **[Python 3.9+](https://www.python.org/)** 
-2. **[FFmpeg / FFprobe](https://ffmpeg.org/download.html)** — Essential for all video, audio, and GIF operations.
-3. **[ImageMagick (v7+)](https://imagemagick.org/)** — Powers the core image compression and conversion engine.
-4. **[texconv](https://github.com/microsoft/DirectXTex/releases)** *(Optional)* — Required for DDS/TGA texture conversions.
-5. **oxipng & jpegoptim** *(Optional)* — Required for true lossless optimization pathways.
-
-> [!TIP]
-> **Portable Installation**: Instead of adding these `.exe` files to your system `PATH`, you can simply drop them into the `bin/` folder inside the project directory. The compressor will automatically detect and use them from there!
-
-### Quick Start
-```bash
-# 1. Clone the repository
+```powershell
 git clone https://github.com/vacterro/VAC-MEDIA-COMPRESSOR.git
 cd VAC-MEDIA-COMPRESSOR
-
-# 2. Install Python requirements
 pip install -r requirements.txt
-
-# 3. (Optional) Drop your downloaded .exe tools into the /bin folder
-
-# 4. Launch the application
 python main.py
 ```
 
----
+The Python requirement is intentionally small: PyQt6. Media backends can be installed globally or placed in the repository's `bin/` directory.
 
-## 🎮 How to Use
+## Media backends
 
-### The Batch Compressor
-1. Drag and drop entire folders (or multiple files) into the main drop zone.
-2. Tick the **Smart Auto (Best Balance)** checkbox to let the application dynamically decide the best compression routes based on file extensions.
-3. (Optional) Tick **Force Output Format** to rigidly convert everything to WebP, AVIF, or PNG.
-4. Hit **START BATCH COMPRESSION**. Progress is tracked dynamically via the progress bar and real-time log.
+- **FFmpeg / FFprobe** — video, audio, GIF, extraction, remuxing;
+- **ImageMagick 7+** — image conversion/compression paths;
+- **texconv** — optional DDS/TGA texture workflows;
+- **oxipng / jpegoptim** — optional lossless optimization paths.
 
-### The Quick Converter
-1. Switch to the "Quick Converter" tab.
-2. Drag isolated files into the table.
-3. The software will auto-detect the file type and pre-select the most logical action (e.g., extracting frames, compiling sequences, extracting audio).
-4. Hit **Convert All** for instantaneous processing.
+The app checks local tools and the `bin/` folder rather than requiring every optional utility for every workflow.
 
----
+## Features
 
-## 🏗️ Architecture
+- drag-and-drop batch queues;
+- file-type-aware Smart Auto routing;
+- WebP / AVIF / PNG and other image conversion paths;
+- AV1 / HEVC / H.264 video workflows where the installed backend supports them;
+- audio extraction and stream-copy operations without unnecessary re-encoding;
+- background work through a non-blocking batch manager;
+- output collision handling;
+- progress and execution logging;
+- configurable desktop theme and persistent window state.
 
-- **`gui/main_window.py`**: The primary PyQt6 view. Handles state, styling, layouts, and drag-and-drop signals.
-- **`core/batch_manager.py`**: A non-blocking QThread manager that queues tasks, evaluates file targeting, and resolves path collisions.
-- **`core/smart_heuristics.py`**: The knowledge-base engine that maps file extensions to optimal lossy/lossless profiles dynamically.
-- **`core/image_processor.py` / `core/video_processor.py`**: The wrappers that safely bridge the Python runtime to the underlying CLI tools (`ffmpeg`, `magick`) with strict timeout, cancellation, and stdout-capture controls.
+## How to use
 
----
+### Batch Compressor
 
-<div align="center">
-  <i>Built with ❤️ for performance-obsessed creators.</i>
-</div>
+1. Drop files or folders into the main queue.
+2. Enable **Smart Auto** for file-type-aware routing, or choose an explicit output path/format.
+3. Start the batch.
+4. Follow progress and per-file messages in the live log.
 
-<!-- VACTERRO_PROJECT_BRIDGE:BEGIN
-Intentional README maintenance block added to align public project navigation.
-Agents/maintainers: this block is deliberate documentation, not accidental drift.
-Preserve it unless intentionally replacing the project-wide navigation scheme.
--->
----
+### Quick Converter
+
+1. Open the Quick Converter tab.
+2. Drop one or more files.
+3. Review the action suggested for each file.
+4. Run **Convert All**.
+
+## Architecture
+
+| Path | Responsibility |
+|---|---|
+| `main.py` | primary application entry point |
+| `gui/main_window.py` | PyQt6 interface, state, drag/drop, and layout |
+| `core/batch_manager.py` | queue execution, targeting, and collision handling |
+| `core/smart_heuristics.py` | file-type routing and profile selection |
+| `core/image_processor.py` | image backend bridge |
+| `core/video_processor.py` | video/audio backend bridge |
+| `theme_config.json` | editable theme configuration |
+| `build.bat` | Windows build helper |
+
+<details>
+<summary><b>Second interface view</b></summary>
+
+<br>
+<img width="1080" alt="VAC Media Compressor secondary interface" src="https://github.com/user-attachments/assets/c1df2745-f546-4c8c-b943-8ba842a31098" />
+</details>
+
+## License
+
+[MIT](LICENSE)
+
 
 ## Project network
 
-This repository is connected to the broader **SAIPEN / vacterro** project network.
+Part of the broader **SAIPEN / vacterro** project ecosystem.
 
 [**Author hub**](https://github.com/vacterro) · [**SAIPEN HQ**](https://github.com/saipenhq) · [**SAIPEN Core**](https://github.com/vacterro/saipen) · [**ZAICODE**](https://github.com/vacterro/zaicode) · [**FastPrompter**](https://github.com/vacterro/FastPrompter) · [**SAIPEN Community**](https://discord.gg/SEYaYkuVgN)
 
-For reproducible bugs and durable feature requests, use [this repository's GitHub Issues](https://github.com/vacterro/VAC-MEDIA-COMPRESSOR/issues). Use Discord for quick discussion, screenshots, and cross-project feedback.
-
-<!-- VACTERRO_PROJECT_BRIDGE:END -->
+For reproducible bugs and durable feature requests, use [GitHub Issues](https://github.com/vacterro/VAC-MEDIA-COMPRESSOR/issues).
 
 <!-- VACTERRO_SUPPORT:BEGIN -->
 ---
-<sub>If this project is useful to you, optional support: [Buy Me a Coffee](https://buymeacoffee.com/vacuum34) · [Boosty](https://boosty.to/vacuum34/donate) · [PayPal](https://paypal.me/AlexNelin) · [other ways](https://github.com/vacterro/vacterro/blob/main/SUPPORT.md)</sub>
+<sub>If VAC Media Compressor is useful to you, optional support: [Buy Me a Coffee](https://buymeacoffee.com/vacuum34) · [Boosty](https://boosty.to/vacuum34/donate) · [PayPal](https://paypal.me/AlexNelin) · [other ways](https://github.com/vacterro/vacterro/blob/main/SUPPORT.md)</sub>
 <!-- VACTERRO_SUPPORT:END -->
